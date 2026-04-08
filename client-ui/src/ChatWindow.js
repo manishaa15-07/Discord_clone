@@ -143,7 +143,7 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
   const handleLogout = async () => {
     if (!isMockMode) {
       try {
-        await axios.post("http://localhost:5001/logout", {}, {
+        await axios.post("http://172.27.46.83:5001/logout", {}, {
           headers: { Authorization: `Bearer ${token}` }
         });
       } catch (err) {
@@ -174,7 +174,7 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
     }
 
     try {
-      await axios.delete("http://localhost:5001/account", {
+      await axios.delete("http://172.27.46.83:5001/account", {
         headers: { Authorization: `Bearer ${token}` },
         data: { password: deletePassword }
       });

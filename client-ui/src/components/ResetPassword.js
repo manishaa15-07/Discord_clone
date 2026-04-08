@@ -48,7 +48,7 @@ function ResetPassword({ isMockMode }) {
     }
 
     try {
-      await axios.post("http://localhost:5001/reset-password", { 
+      await axios.post("http://172.27.46.83:5001/reset-password", { 
         token, 
         newPassword: password 
       });

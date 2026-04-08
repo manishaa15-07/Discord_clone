@@ -28,7 +28,7 @@ function ForgotPassword({ isMockMode }) {
     }
 
     try {
-      await axios.post("http://localhost:5001/forgot-password", { email: email.trim() });
+      await axios.post("http://172.27.46.83:5001/forgot-password", { email: email.trim() });
       setSuccess(true);
     } catch (err) {
       console.error("Forgot password failed:", err);

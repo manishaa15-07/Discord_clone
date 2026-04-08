@@ -37,7 +37,7 @@ function Register({ setToken, setUsername, isMockMode, setIsMockMode }) {
 
     try {
       // 1. Register
-      await axios.post("http://localhost:5001/register", {
+      await axios.post("http://172.27.46.83:5001/register", {
         username: localUsername.trim(),
         password,
         email: email.trim(),
@@ -45,7 +45,7 @@ function Register({ setToken, setUsername, isMockMode, setIsMockMode }) {
       });
       
       // 2. Auto-login after successful registration
-      const res = await axios.post("http://localhost:5001/login", { 
+      const res = await axios.post("http://172.27.46.83:5001/login", { 
         username: localUsername.trim(),
         password: password
       });
