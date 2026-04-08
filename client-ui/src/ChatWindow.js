@@ -100,7 +100,7 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
       socket.off("new_message");
       socket.disconnect();
     };
-  }, [serverIdx, token]);
+  }, [serverIdx, token, isMockMode, room]);
 
   const sendMessage = (e) => {
     e?.preventDefault();
