@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Distributed Chat - Lamport Clocks</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0f172a;
+            --card-bg: #1e293b;
+            --primary: #38bdf8;
+            --accent: #818cf8;
+            --text: #f8fafc;
+            --text-dim: #94a3b8;
+            --shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #app {
+            width: 100%;
+            max-width: 600px;
+            height: 80vh;
+            background: var(--card-bg);
+            border-radius: 1rem;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            position: relative;
+        }
+
+        header {
+            padding: 1.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(30, 41, 59, 0.8);
+            backdrop-filter: blur(8px);
+            border-top-left-radius: 1rem;
+            border-top-right-radius: 1rem;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--primary);
+        }
+
+        .status {
+            font-size: 0.875rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-dim);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10b981;
+            box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.2);
+        }
+
+        #chat-messages {
+            flex: 1;
+            padding: 1.5rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 1rem;
+            border-radius: 0.75rem;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            position: relative;
+            animation: slideUp 0.3s ease-out;
+        }
+
+        @keyframes slideUp {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.local {
+            align-self: flex-end;
+            background: rgba(56, 189, 248, 0.1);
+            border-color: rgba(56, 189, 248, 0.2);
+        }
+
+        .message.remote {
+            align-self: flex-start;
+            background: rgba(129, 140, 248, 0.1);
+            border-color: rgba(129, 140, 248, 0.2);
+        }
+
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            font-weight: 600;
+        }
+
+        .message-text {
+            font-size: 1rem;
+            line-height: 1.5;
+        }
+
+        .lamport-badge {
+            font-family: 'JetBrains Mono', monospace;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: var(--accent);
+            font-size: 0.7rem;
+        }
+
+        .current-clock {
+            position: absolute;
+            top: -40px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--accent);
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 2rem;
+            font-weight: 600;
+            font-size: 0.8rem;
+            box-shadow: var(--shadow);
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        footer {
+            padding: 1.5rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        form {
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        input {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            color: var(--text);
+            font-family: inherit;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input:focus {
+            border-color: var(--primary);
+        }
+
+        button {
+            background: var(--primary);
+            color: var(--bg);
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.1s, background 0.2s;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="current-clock">
+            <span>Lamport Clock:</span>
+            <span id="clock-val">0</span>
+        </div>
+        <header>
+            <h1>Distributed Chat</h1>
+            <div class="status">
+                <div class="status-dot"></div>
+                <span id="server-label">Connecting...</span>
+            </div>
+        </header>
+
+        <div id="chat-messages">
+            <!-- Messages go here -->
+        </div>
+
+        <footer>
+            <form id="chat-form">
+                <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off">
+                <button type="submit">Send</button>
+            </form>
+        </footer>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const form = document.getElementById('chat-form');
+        const input = document.getElementById('message-input');
+        const messages = document.getElementById('chat-messages');
+        const clockVal = document.getElementById('clock-val');
+        const serverLabel = document.getElementById('server-label');
+
+        let myServerId = '?';
+
+        socket.on('connect', () => {
+            console.log('Connected!');
+        });
+
+        socket.on('receive_message', (data) => {
+            myServerId = data.originServer; // Hacky way to get current server ID from first message
+            serverLabel.innerText = `Server ${data.originServer} (ID: ${data.originServer})`;
+            
+            clockVal.innerText = data.currentClock || data.lamport;
+            
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${data.originServer === myServerId ? 'local' : 'remote'}`;
+            
+            msgDiv.innerHTML = `
+                <div class="message-header">
+                    <span>${data.originServer === myServerId ? 'You' : 'Server ' + data.originServer}</span>
+                    <span class="lamport-badge">L: ${data.lamport}</span>
+                </div>
+                <div class="message-text">${data.text}</div>
+            `;
+            
+            messages.appendChild(msgDiv);
+            messages.scrollTop = messages.scrollHeight;
+        });
+
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            if (input.value) {
+                socket.emit('send_message', { text: input.value });
+                input.value = '';
+            }
+        });
+    </script>
+</body>
+</html>
