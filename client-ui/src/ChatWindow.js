@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import io from "socket.io-client";
-import { Hash, Send, LogOut, Radio, WifiOff, MessageSquare } from "lucide-react";
+import axios from "axios";
+import { Hash, Send, LogOut, Radio, WifiOff, MessageSquare, Settings, AlertTriangle, Loader2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
-// The requested chat application requires load balancing/failover between 2 servers.
 const SERVERS = ["http://localhost:8001", "http://localhost:8002"];
 
 function ChatWindow({ token, username, onLogout, isMockMode }) {
@@ -13,11 +14,16 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
   const [isConnected, setIsConnected] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   
-  const socketRef = useRef(null);
+  // Settings / Delete Account State
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   
-  // Distributed Computing: Lamport Clock. Must start at 0.
+  const socketRef = useRef(null);
   const clockRef = useRef(0);
   const messagesEndRef = useRef(null);
+  const navigate = useNavigate();
   
   const rooms = ["general", "random", "tech"];
 
@@ -50,7 +56,7 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
     
     const socket = io(serverUrl, {
       auth: { token },
-      reconnection: false, // We handle failover logic manually based on requirements
+      reconnection: false,
       timeout: 3000,
     });
     
@@ -71,23 +77,15 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
       console.error(`Connection error on ${serverUrl}:`, error.message);
       setIsConnected(false);
       setIsReconnecting(true);
-      
-      // Distributed Computing: Client-side fault tolerance / failover.
       socket.disconnect();
-      
-      // Auto-failover to the next server. 
       setTimeout(() => {
         setServerIdx((prev) => (prev + 1) % SERVERS.length);
       }, 1000);
     });
 
     socket.on("new_message", (data) => {
-      // Distributed Computing: Update local lamport clock on receive.
-      // Rule: clock = Math.max(local, incoming) + 1
       clockRef.current = Math.max(clockRef.current, data.lamport) + 1;
-      
       setMessages((prev) => {
-        // Add message to state and ALWAYS sort by lamport value. NOT arrival time.
         const updated = [...prev, data];
         return updated.sort((a, b) => a.lamport - b.lamport);
       });
@@ -100,16 +98,14 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
       socket.off("new_message");
       socket.disconnect();
     };
-  }, [serverIdx, token]);
+  }, [serverIdx, token, isMockMode, room]);
 
   const sendMessage = (e) => {
     e?.preventDefault();
     if (!input.trim() || !isConnected) return;
     
-    // Distributed Computing: Increment Lamport clock BEFORE sending
     clockRef.current += 1;
     
-    // Strict schema requirement
     const payload = {
       sender: username,
       content: input.trim(),
@@ -124,7 +120,6 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
         return updated.sort((a, b) => a.lamport - b.lamport);
       });
       setInput("");
-      
       setTimeout(() => {
         clockRef.current += 1;
         setMessages((prev) => {
@@ -145,11 +140,62 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
     setInput("");
   };
 
+  const handleLogout = async () => {
+    if (!isMockMode) {
+      try {
+        await axios.post("http://localhost:5001/logout", {}, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      } catch (err) {
+        console.error("Logout error:", err);
+      }
+    }
+    onLogout();
+    navigate("/login");
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!deletePassword) {
+      setDeleteError("Password is required to delete account.");
+      return;
+    }
+    
+    setIsDeleting(true);
+    setDeleteError("");
+
+    if (isMockMode) {
+      setTimeout(() => {
+        setIsDeleting(false);
+        setIsSettingsOpen(false);
+        onLogout();
+        navigate("/register");
+      }, 800);
+      return;
+    }
+
+    try {
+      await axios.delete("http://localhost:5001/account", {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { password: deletePassword }
+      });
+      setIsSettingsOpen(false);
+      onLogout();
+      navigate("/register");
+    } catch (err) {
+      console.error("Delete account error:", err);
+      if (err.response?.data?.error) {
+        setDeleteError(err.response.data.error);
+      } else {
+        setDeleteError("Failed to delete account. Ensure your password is correct.");
+      }
+      setIsDeleting(false);
+    }
+  };
+
   const currentRoomMessages = messages.filter((m) => m.roomId === room);
 
   return (
     <div className="app-container">
-      {/* Banner for Server Failover UX */}
       {!isConnected && isReconnecting && (
         <div className="server-banner">
           <WifiOff size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
@@ -157,7 +203,6 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
         </div>
       )}
       
-      {/* Dynamic Info Banner */}
       {isConnected && serverIdx === 1 && (
         <div className="server-banner info">
           <Radio size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
@@ -168,9 +213,9 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
       {/* Sidebar */}
       <div className="sidebar">
         <div className="sidebar-header">
-          <h1 className="sidebar-title">
-            <Radio size={20} color="var(--accent-primary)" />
-            Distributed Chat
+          <h1 className="sidebar-title" style={{ display: 'flex', alignItems: 'center' }}>
+            <img src="/discord_logo.png" alt="Discord2.0 Logo" width="24" height="24" style={{ marginRight: '8px', borderRadius: '4px' }} />
+            Discord2.0
           </h1>
         </div>
         
@@ -199,8 +244,19 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
               {isConnected ? "Connected" : isReconnecting ? "Reconnecting..." : "Offline"}
             </div>
           </div>
+          
+          {/* Settings Button */}
           <button 
-            onClick={onLogout}
+            onClick={() => setIsSettingsOpen(true)}
+            style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4, marginRight: 4 }}
+            title="Settings"
+          >
+            <Settings size={18} />
+          </button>
+
+          {/* Logout Button */}
+          <button 
+            onClick={handleLogout}
             style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}
             title="Log out"
           >
@@ -267,6 +323,58 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
           </form>
         </div>
       </div>
+
+      {/* Settings Modal Setup */}
+      {isSettingsOpen && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div className="login-card" style={{ width: '400px', padding: '24px' }}>
+            <h2 style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-main)', marginBottom: 8 }}>Account Settings</h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 24 }}>Manage your account settings</p>
+            
+            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 24 }}>
+              <h3 style={{ color: '#ed4245', fontSize: 16, display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <AlertTriangle size={18} /> Danger Zone
+              </h3>
+              <p style={{ color: 'var(--text-main)', fontSize: 13, marginBottom: 16 }}>
+                Once you delete your account, there is no going back. Please be certain.
+              </p>
+              
+              <div className="input-group">
+                <label className="input-label">Confirm Password</label>
+                <input
+                  type="password"
+                  className="text-input"
+                  value={deletePassword}
+                  onChange={(e) => {
+                    setDeletePassword(e.target.value);
+                    if (deleteError) setDeleteError("");
+                  }}
+                  placeholder="Enter your password to confirm"
+                />
+                {deleteError && <p style={{ color: '#ed4245', fontSize: 12, marginTop: 8 }}>{deleteError}</p>}
+              </div>
+
+              <div style={{ display: 'flex', gap: 12, marginTop: 24 }}>
+                <button 
+                  className="btn-secondary" 
+                  style={{ flex: 1, padding: 12, background: 'var(--surface-light)', color: 'var(--text-main)', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                  onClick={() => setIsSettingsOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button 
+                  className="btn-primary" 
+                  style={{ flex: 1, background: '#ed4245', borderColor: '#ed4245' }}
+                  onClick={handleDeleteAccount}
+                  disabled={isDeleting || !deletePassword}
+                >
+                  {isDeleting ? <Loader2 size={18} className="spin" /> : "Delete Account"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
