@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Auth Server Test</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: sans-serif;
+            background: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            padding: 40px 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 500px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        h1 {
+            font-size: 22px;
+            color: #1a1a2e;
+            text-align: center;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        }
+
+        .card h2 {
+            font-size: 16px;
+            margin-bottom: 16px;
+            color: #333;
+        }
+
+        input {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-bottom: 10px;
+            outline: none;
+        }
+
+        input:focus {
+            border-color: #7c6ff7;
+        }
+
+        button {
+            width: 100%;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            color: white;
+        }
+
+        .btn-register {
+            background: #1D9E75;
+        }
+
+        .btn-login {
+            background: #7c6ff7;
+        }
+
+        .btn-verify {
+            background: #e07b39;
+        }
+
+        .btn-logout {
+            background: #e05c5c;
+        }
+
+        .btn-online {
+            background: #3b8bd4;
+        }
+
+        .response {
+            margin-top: 12px;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            display: none;
+        }
+
+        .success {
+            background: #eafaf1;
+            color: #1D9E75;
+            display: block;
+        }
+
+        .error {
+            background: #fdecea;
+            color: #c0392b;
+            display: block;
+        }
+
+        .token-display {
+            background: #f8f8f8;
+            border: 1px solid #eee;
+            border-radius: 8px;
+            padding: 10px;
+            font-size: 11px;
+            font-family: monospace;
+            word-break: break-all;
+            color: #555;
+            margin-top: 8px;
+            display: none;
+        }
+
+        .label {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 4px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+
+        <h1>Auth Server Tester</h1>
+
+        <!-- REGISTER -->
+        <div class="card">
+            <h2>Register</h2>
+            <input id="reg-username" type="text" placeholder="Username (min 3 chars)" />
+            <input id="reg-password" type="password" placeholder="Password (min 6 chars)" />
+            <input id="reg-email" type="email" placeholder="Email" />
+            <input id="reg-displayname" type="text" placeholder="Display Name" />
+            <button class="btn-register" onclick="register()">Register</button>
+            <div class="response" id="reg-response"></div>
+        </div>
+
+        <!-- LOGIN -->
+        <div class="card">
+            <h2>Login</h2>
+            <input id="login-username" type="text" placeholder="Username" />
+            <input id="login-password" type="password" placeholder="Password" />
+            <button class="btn-login" onclick="login()">Login</button>
+            <div class="response" id="login-response"></div>
+            <div class="label" style="margin-top:10px">Token received:</div>
+            <div class="token-display" id="token-display"></div>
+        </div>
+
+        <!-- VERIFY -->
+        <div class="card">
+            <h2>Verify Token</h2>
+            <p style="font-size:13px;color:#888;margin-bottom:10px">
+                Uses the token saved from login automatically.
+            </p>
+            <button class="btn-verify" onclick="verify()">Verify Token</button>
+            <div class="response" id="verify-response"></div>
+        </div>
+
+        <!-- ONLINE USERS -->
+        <div class="card">
+            <h2>Online Users</h2>
+            <button class="btn-online" onclick="getOnlineUsers()">Get Online Users</button>
+            <div class="response" id="online-response"></div>
+        </div>
+
+        <!-- LOGOUT -->
+        <div class="card">
+            <h2>Logout</h2>
+            <button class="btn-logout" onclick="logout()">Logout</button>
+            <div class="response" id="logout-response"></div>
+        </div>
+
+    </div>
+
+    <script>
+        const BASE_URL = 'http://localhost:5001';
+
+        // Token is saved here after login
+        let savedToken = null;
+
+        // ── helper: show response ──────────────────
+        function showResponse(id, data, isError = false) {
+            const el = document.getElementById(id);
+            el.className = 'response ' + (isError ? 'error' : 'success');
+            el.textContent = JSON.stringify(data, null, 2);
+        }
+
+        // ── REGISTER ──────────────────────────────
+        async function register() {
+            const username = document.getElementById('reg-username').value.trim();
+            const password = document.getElementById('reg-password').value;
+            const email = document.getElementById('reg-email').value.trim();
+            const displayName = document.getElementById('reg-displayname').value.trim();
+
+            if (!username || !password || !email || !displayName) {
+                showResponse('reg-response', { error: 'Please fill all fields' }, true);
+                return;
+            }
+
+            try {
+                const res = await fetch(`${BASE_URL}/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password, email, displayName })
+                });
+
+                const data = await res.json();
+                showResponse('reg-response', data, !res.ok);
+            } catch (err) {
+                showResponse('reg-response', { error: 'Cannot reach server. Is it running?' }, true);
+            }
+        }
+
+        // ── LOGIN ─────────────────────────────────
+        async function login() {
+            const username = document.getElementById('login-username').value.trim();
+            const password = document.getElementById('login-password').value;
+
+            if (!username || !password) {
+                showResponse('login-response', { error: 'Please fill all fields' }, true);
+                return;
+            }
+
+            try {
+                const res = await fetch(`${BASE_URL}/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await res.json();
+
+                if (res.ok && data.token) {
+                    // Save token for other requests
+                    savedToken = data.token;
+                    document.getElementById('token-display').style.display = 'block';
+                    document.getElementById('token-display').textContent = data.token;
+                }
+
+                showResponse('login-response', data, !res.ok);
+            } catch (err) {
+                showResponse('login-response', { error: 'Cannot reach server. Is it running?' }, true);
+            }
+        }
+
+        // ── VERIFY ────────────────────────────────
+        async function verify() {
+            if (!savedToken) {
+                showResponse('verify-response', { error: 'Login first to get a token' }, true);
+                return;
+            }
+
+            try {
+                const res = await fetch(`${BASE_URL}/verify`, {
+                    headers: { 'Authorization': `Bearer ${savedToken}` }
+                });
+
+                const data = await res.json();
+                showResponse('verify-response', data, !res.ok);
+            } catch (err) {
+                showResponse('verify-response', { error: 'Cannot reach server. Is it running?' }, true);
+            }
+        }
+
+        // ── ONLINE USERS ──────────────────────────
+        async function getOnlineUsers() {
+            if (!savedToken) {
+                showResponse('online-response', { error: 'Login first to get a token' }, true);
+                return;
+            }
+
+            try {
+                const res = await fetch(`${BASE_URL}/users/online`, {
+                    headers: { 'Authorization': `Bearer ${savedToken}` }
+                });
+
+                const data = await res.json();
+                showResponse('online-response', data, !res.ok);
+            } catch (err) {
+                showResponse('online-response', { error: 'Cannot reach server. Is it running?' }, true);
+            }
+        }
+
+        // ── LOGOUT ────────────────────────────────
+        async function logout() {
+            if (!savedToken) {
+                showResponse('logout-response', { error: 'You are not logged in' }, true);
+                return;
+            }
+
+            try {
+                const res = await fetch(`${BASE_URL}/logout`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${savedToken}` }
+                });
+
+                const data = await res.json();
+
+                if (res.ok) {
+                    savedToken = null;
+                    document.getElementById('token-display').style.display = 'none';
+                    document.getElementById('token-display').textContent = '';
+                }
+
+                showResponse('logout-response', data, !res.ok);
+            } catch (err) {
+                showResponse('logout-response', { error: 'Cannot reach server. Is it running?' }, true);
+            }
+        }
+    </script>
+</body>
+
+</html>
