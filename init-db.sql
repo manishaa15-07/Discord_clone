@@ -1,9 +1,19 @@
 -- Initialize database schema for chat application
 
+CREATE TABLE IF NOT EXISTS users (
+  id            SERIAL PRIMARY KEY,
+  username      VARCHAR(50) UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  email         VARCHAR(100) UNIQUE NOT NULL,
+  display_name  VARCHAR(100) NOT NULL,
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS rooms (
-  id        SERIAL PRIMARY KEY,
-  name      VARCHAR(100) UNIQUE NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  id          VARCHAR(50) PRIMARY KEY,
+  name        VARCHAR(100) NOT NULL,
+  description TEXT,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -18,3 +28,11 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_room_lamport
   ON messages (room_id, lamport ASC);
+
+-- Seed Rooms
+INSERT INTO rooms (id, name, description) VALUES 
+('general', 'general', 'The main chat room'),
+('random', 'random', 'Off-topic conversations'),
+('dev', 'dev', 'Development discussion'),
+('announcements', 'announcements', 'Important updates')
+ON CONFLICT (id) DO NOTHING;

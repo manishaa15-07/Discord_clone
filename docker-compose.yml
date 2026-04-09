@@ -2,12 +2,21 @@ version: '3.8'
 
 services:
   redis:
-    image: redis:alpine
+    image: redis:7-alpine
+    container_name: project_redis
     ports:
       - "6379:6379"
+    networks:
+      - chatnet
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   database:
-    image: postgres:13
+    image: postgres:15-alpine
+    container_name: project_database
     environment:
       - POSTGRES_USER=chatuser
       - POSTGRES_PASSWORD=password
@@ -17,9 +26,38 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - chatnet
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatuser -d chatdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  auth-server:
+    build:
+      context: ./auth-server
+    container_name: project_auth
+    ports:
+      - "5001:5001"
+    environment:
+      - DB_HOST=database
+      - DB_USER=chatuser
+      - DB_PASSWORD=password
+      - DB_NAME=chatdb
+      - JWT_SECRET=distributed_secret_key
+    networks:
+      - chatnet
+    depends_on:
+      redis:
+        condition: service_healthy
+      database:
+        condition: service_healthy
 
   server-a:
-    build: .
+    build:
+      context: ./chat-server
+    container_name: project_server_a
     environment:
       - SERVER_ID=A
       - PORT=8000
@@ -28,14 +66,21 @@ services:
       - DB_USER=chatuser
       - DB_PASSWORD=password
       - DB_NAME=chatdb
+      - JWT_SECRET=distributed_secret_key
     ports:
       - "8000:8000"
+    networks:
+      - chatnet
     depends_on:
-      - redis
-      - database
+      redis:
+        condition: service_healthy
+      database:
+        condition: service_healthy
 
   server-b:
-    build: .
+    build:
+      context: ./chat-server
+    container_name: project_server_b
     environment:
       - SERVER_ID=B
       - PORT=8001
@@ -44,11 +89,21 @@ services:
       - DB_USER=chatuser
       - DB_PASSWORD=password
       - DB_NAME=chatdb
+      - JWT_SECRET=distributed_secret_key
     ports:
       - "8001:8001"
+    networks:
+      - chatnet
     depends_on:
-      - redis
-      - database
+      redis:
+        condition: service_healthy
+      database:
+        condition: service_healthy
 
 volumes:
   pgdata:
+
+networks:
+  chatnet:
+    driver: bridge
+

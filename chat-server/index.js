@@ -5,8 +5,10 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const Redis = require("ioredis");
+const jwt = require("jsonwebtoken");
 const db = require("./db");
 const LamportClock = require("./lamport");
+const { publishRoomMessage } = require("./redisAdapter");
 
 // ==============================
 // 2. CONFIG
@@ -15,12 +17,15 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-const redisUrl = process.env.REDIS_URL || "redis://127.0.0.1:6379";
-const redisPub = new Redis(redisUrl);
-const redisSub = new Redis(redisUrl);
 const SERVER_ID = process.env.SERVER_ID || "A";
 const PORT = Number(process.env.PORT || 8000);
+const JWT_SECRET = process.env.JWT_SECRET || "distributed_secret_key";
+const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
+
+const redisPub = new Redis(REDIS_URL);
+const redisSub = new Redis(REDIS_URL);
 const clock = new LamportClock();
+const subscribedRooms = new Set();
 
 // ==============================
 // 3. ROUTES
@@ -34,35 +39,33 @@ app.get("/health", (req, res) => {
 });
 
 app.get("/history/:roomId", async (req, res) => {
+  const { roomId } = req.params;
   try {
-    const messages = await db.getMessagesByRoom(req.params.roomId);
-    res.json(messages);
+    const messages = await db.getMessagesByRoom(roomId);
+    return res.json(messages);
   } catch (err) {
     console.error("History route error:", err);
-    res.status(500).json({ error: "Failed to get history" });
+    return res.status(500).json({ error: "Failed to get history" });
   }
 });
 
 // ==============================
 // 4. REDIS PUB/SUB
 // ==============================
-redisSub
-  .subscribe("chat_channel")
-  .then(() => console.log("Subscribed to chat_channel"))
-  .catch((err) => {
-    console.error("Redis subscribe failed", err);
-    process.exit(1);
-  });
+async function subscribeRoom(roomId) {
+  if (subscribedRooms.has(roomId)) return;
+  await redisSub.subscribe(`chat:${roomId}`);
+  subscribedRooms.add(roomId);
+  console.log(`[${SERVER_ID}] subscribed to chat:${roomId}`);
+}
 
 redisSub.on("message", async (channel, message) => {
-  if (channel !== "chat_channel") return;
-
   try {
     const payload = JSON.parse(message);
-    if (!payload || payload.originServer === SERVER_ID) return;
+    if (!payload || !payload.roomId) return;
 
     clock.sync(payload.lamport);
-    io.emit("new_message", payload);
+    io.to(payload.roomId).emit("new_message", payload);
   } catch (err) {
     console.error("Redis message parse error:", err);
   }
@@ -72,7 +75,7 @@ async function safePublish(payload) {
   const raw = JSON.stringify(payload);
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      await redisPub.publish("chat_channel", raw);
+      await publishRoomMessage(payload.roomId, payload);
       return;
     } catch (err) {
       console.warn(`Redis publish attempt ${attempt} failed:`, err.message);
@@ -85,33 +88,60 @@ async function safePublish(payload) {
 // ==============================
 // 5. SOCKET.IO
 // ==============================
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token;
+  if (!token) {
+    return next(new Error("Authentication required"));
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    socket.username = decoded.username;
+    return next();
+  } catch (err) {
+    return next(new Error("Invalid authentication token"));
+  }
+});
+
 io.on("connection", (socket) => {
-  console.log(`User connected to Server ${SERVER_ID}`, socket.id);
+  console.log(`[${SERVER_ID}] user connected`, socket.id, socket.username);
+
+  socket.on("join_room", async (roomId = "general") => {
+    roomId = String(roomId || "general");
+    socket.join(roomId);
+    try {
+      await subscribeRoom(roomId);
+      socket.emit("joined_room", { roomId });
+    } catch (err) {
+      console.error(`[${SERVER_ID}] failed to subscribe to room ${roomId}:`, err);
+      socket.emit("room_error", { error: "Failed to join room" });
+    }
+  });
 
   socket.on("send_message", async (data = {}) => {
     try {
-      const message = {
-        sender: String(data.sender || "anonymous"),
+      const roomId = String(data.roomId || "general");
+      const clientLamport = Number(data.lamport || 0);
+      const messageData = {
+        sender: socket.username || String(data.sender || "anonymous"),
         content: String(data.content || ""),
-        roomId: String(data.roomId || "general"),
+        roomId,
         originServer: SERVER_ID,
-        lamport: clock.tick(),
+        lamport: clock.sync(clientLamport),
         createdAt: new Date().toISOString()
       };
 
-      await db.saveMessage(message);
-      await safePublish(message);
-      io.emit("new_message", message);
-
-      socket.emit("message_saved", { success: true, message });
+      await safePublish(messageData);
+      db.saveMessage(messageData).catch((err) => console.error('[DB] Failed to save message:', err));
+      socket.emit("message_sent", { success: true, message: messageData });
     } catch (err) {
       console.error("send_message error:", err);
-      socket.emit("message_saved", { success: false, error: err.message });
+      socket.emit("message_sent", { success: false, error: err.message });
     }
   });
 
   socket.on("disconnect", () => {
-    console.log(`User disconnected from Server ${SERVER_ID}`, socket.id);
+    console.log(`[${SERVER_ID}] user disconnected`, socket.id);
   });
 });
 

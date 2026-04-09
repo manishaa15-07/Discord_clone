@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DistroChat — Group 1</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+<style>
+:root {
+  --bg:        #0d0d14;
+  --sidebar:   #13131f;
+  --surface:   #1a1a2e;
+  --surface2:  #22223a;
+  --surface3:  #2a2a48;
+  --border:    rgba(255,255,255,0.06);
+  --text:      #e8e6f0;
+  --muted:     #8884aa;
+  --faint:     #3a3860;
+
+  --p1: #7c6aff;
+  --p2: #a855f7;
+  --a1: #06d6a0;
+  --a2: #00b4d8;
+  --w:  #ff6b6b;
+  --y:  #ffd166;
+
+  --grad: linear-gradient(135deg, #7c6aff, #a855f7, #06d6a0);
+  --grad2: linear-gradient(135deg, #7c6aff 0%, #06d6a0 100%);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--faint); border-radius: 4px; }
+
+/* ══════════════════════════════════════
+   LOGIN SCREEN
+══════════════════════════════════════ */
+#login-screen {
+  position: fixed; inset: 0; z-index: 100;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  animation: fadeIn .4s ease;
+}
+
+.login-card {
+  width: 420px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 48px 40px;
+  position: relative;
+  overflow: hidden;
+}
+
+.login-card::before {
+  content: '';
+  position: absolute;
+  top: -80px; right: -80px;
+  width: 200px; height: 200px;
+  background: radial-gradient(circle, rgba(124,106,255,0.3) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.login-card::after {
+  content: '';
+  position: absolute;
+  bottom: -60px; left: -60px;
+  width: 160px; height: 160px;
+  background: radial-gradient(circle, rgba(6,214,160,0.2) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.login-logo {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 32px;
+}
+
+.login-logo-icon {
+  width: 44px; height: 44px; border-radius: 14px;
+  background: var(--grad);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px;
+}
+
+.login-logo h1 {
+  font-size: 22px; font-weight: 700;
+  background: var(--grad2);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+
+.login-subtitle { font-size: 13px; color: var(--muted); margin-bottom: 28px; line-height: 1.6; }
+
+.field-label {
+  font-size: 11px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;
+}
+
+.field-input {
+  width: 100%; padding: 13px 16px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 12px; color: var(--text);
+  font-family: 'Plus Jakarta Sans', sans-serif; font-size: 14px;
+  outline: none; transition: border-color .2s, box-shadow .2s;
+  margin-bottom: 16px;
+}
+
+.field-input:focus {
+  border-color: var(--p1);
+  box-shadow: 0 0 0 3px rgba(124,106,255,0.15);
+}
+
+.login-btn {
+  width: 100%; padding: 14px;
+  background: var(--grad);
+  border: none; border-radius: 12px;
+  color: #fff; font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 15px; font-weight: 600; cursor: pointer;
+  transition: opacity .2s, transform .1s;
+  margin-top: 4px;
+}
+
+.login-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+.login-btn:active { transform: translateY(0); }
+
+.login-error {
+  font-size: 12px; color: var(--w);
+  margin-top: 10px; text-align: center; min-height: 18px;
+}
+
+.server-tags {
+  display: flex; gap: 6px; margin-top: 20px; justify-content: center;
+}
+
+.server-tag {
+  font-size: 10px; font-family: 'JetBrains Mono', monospace;
+  padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+/* ══════════════════════════════════════
+   MAIN APP
+══════════════════════════════════════ */
+#app { display: none; width: 100%; height: 100vh; }
+#app.visible { display: flex; animation: fadeIn .3s ease; }
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* ── SERVER RAIL (far left) ── */
+.server-rail {
+  width: 72px; flex-shrink: 0;
+  background: var(--bg);
+  display: flex; flex-direction: column;
+  align-items: center; padding: 12px 0; gap: 8px;
+  border-right: 1px solid var(--border);
+}
+
+.rail-icon {
+  width: 48px; height: 48px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: border-radius .2s, transform .15s;
+  font-size: 20px; position: relative;
+}
+
+.rail-icon:hover { border-radius: 16px; transform: scale(1.05); }
+
+.rail-icon.main {
+  background: var(--grad);
+  border-radius: 16px;
+  font-size: 18px; color: white; font-weight: 700;
+}
+
+.rail-icon.room {
+  background: var(--surface2);
+  font-size: 16px;
+}
+
+.rail-icon.active {
+  border-radius: 16px;
+  background: var(--surface3);
+}
+
+.rail-divider {
+  width: 32px; height: 2px;
+  background: var(--border); border-radius: 1px;
+  margin: 4px 0;
+}
+
+/* ── SIDEBAR ── */
+.sidebar {
+  width: 240px; flex-shrink: 0;
+  background: var(--sidebar);
+  display: flex; flex-direction: column;
+  border-right: 1px solid var(--border);
+}
+
+.sidebar-header {
+  padding: 16px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+
+.sidebar-title {
+  font-size: 15px; font-weight: 700; color: var(--text);
+}
+
+.sidebar-badge {
+  font-size: 10px; font-family: 'JetBrains Mono', monospace;
+  background: var(--surface3); color: var(--p1);
+  padding: 3px 8px; border-radius: 6px;
+}
+
+.channel-section-label {
+  font-size: 10px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 1.2px;
+  padding: 16px 16px 6px;
+}
+
+.channel-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; margin: 0 8px;
+  border-radius: 8px; cursor: pointer;
+  transition: background .15s; color: var(--muted);
+  font-size: 14px; font-weight: 500;
+}
+
+.channel-item:hover { background: var(--surface2); color: var(--text); }
+
+.channel-item.active {
+  background: var(--surface3); color: var(--text);
+}
+
+.channel-item.active .ch-icon { color: var(--p1); }
+
+.ch-icon { font-size: 16px; }
+
+.ch-unread {
+  margin-left: auto;
+  background: var(--p1); color: white;
+  font-size: 10px; font-weight: 700;
+  padding: 2px 6px; border-radius: 8px;
+  min-width: 18px; text-align: center;
+}
+
+/* User panel */
+.user-panel {
+  margin-top: auto;
+  padding: 12px; border-top: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+  background: var(--bg);
+}
+
+.user-avatar-small {
+  width: 34px; height: 34px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; color: white; flex-shrink: 0;
+}
+
+.user-name-small { font-size: 13px; font-weight: 600; color: var(--text); }
+.user-status-small {
+  font-size: 11px; color: var(--a1);
+  display: flex; align-items: center; gap: 4px;
+}
+
+.status-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--a1);
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%,100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.logout-btn {
+  margin-left: auto; background: none; border: none;
+  color: var(--muted); cursor: pointer; font-size: 16px;
+  padding: 6px; border-radius: 6px; transition: color .15s, background .15s;
+}
+.logout-btn:hover { color: var(--w); background: rgba(255,107,107,0.1); }
+
+/* ── MAIN CHAT ── */
+.chat-main {
+  flex: 1; display: flex; flex-direction: column; overflow: hidden;
+}
+
+/* Chat header */
+.chat-header {
+  padding: 0 24px;
+  height: 56px; display: flex; align-items: center; gap: 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--sidebar);
+  flex-shrink: 0;
+}
+
+.chat-header-icon { font-size: 20px; color: var(--muted); }
+.chat-header-name { font-size: 16px; font-weight: 700; }
+.chat-header-desc { font-size: 12px; color: var(--muted); margin-left: 8px; }
+
+.header-pills { margin-left: auto; display: flex; gap: 8px; }
+
+.header-pill {
+  font-size: 11px; font-family: 'JetBrains Mono', monospace;
+  padding: 5px 10px; border-radius: 8px;
+  border: 1px solid var(--border); color: var(--muted);
+  display: flex; align-items: center; gap: 6px;
+}
+
+.pill-dot { width: 6px; height: 6px; border-radius: 50%; }
+
+/* Messages area */
+.messages-area {
+  flex: 1; overflow-y: auto;
+  padding: 20px 24px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+
+/* Welcome banner */
+.welcome-banner {
+  text-align: center; padding: 40px 20px;
+  margin-bottom: 20px;
+}
+
+.welcome-icon {
+  width: 72px; height: 72px; border-radius: 24px;
+  background: var(--grad); margin: 0 auto 16px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 32px;
+}
+
+.welcome-banner h2 {
+  font-size: 22px; font-weight: 700; margin-bottom: 6px;
+  background: var(--grad2);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+
+.welcome-banner p { font-size: 13px; color: var(--muted); }
+
+/* Message groups */
+.msg-group { display: flex; gap: 14px; margin: 6px 0; padding: 4px 8px; border-radius: 10px; transition: background .1s; }
+.msg-group:hover { background: rgba(255,255,255,0.02); }
+
+.msg-avatar {
+  width: 38px; height: 38px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 700; color: white;
+  flex-shrink: 0; margin-top: 2px;
+}
+
+.msg-body { flex: 1; }
+
+.msg-meta {
+  display: flex; align-items: baseline; gap: 8px; margin-bottom: 3px;
+}
+
+.msg-sender { font-size: 14px; font-weight: 700; }
+.msg-time {
+  font-size: 11px; color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.msg-server-tag {
+  font-size: 9px; font-family: 'JetBrains Mono', monospace;
+  padding: 2px 6px; border-radius: 4px;
+  background: var(--surface3); color: var(--muted);
+}
+
+.msg-text { font-size: 14px; color: var(--text); line-height: 1.55; word-break: break-word; }
+
+.msg-lamport {
+  font-size: 10px; font-family: 'JetBrains Mono', monospace;
+  color: var(--faint); margin-top: 3px;
+}
+
+/* Continued messages (same sender) */
+.msg-continued {
+  display: flex; gap: 14px; padding: 1px 8px; border-radius: 6px;
+  transition: background .1s;
+}
+.msg-continued:hover { background: rgba(255,255,255,0.02); }
+.msg-continued .msg-time-inline {
+  width: 38px; flex-shrink: 0;
+  font-size: 10px; color: transparent; text-align: right;
+  font-family: 'JetBrains Mono', monospace;
+  padding-top: 2px;
+}
+.msg-continued:hover .msg-time-inline { color: var(--muted); }
+
+/* System messages */
+.msg-system {
+  text-align: center; font-size: 12px; color: var(--muted);
+  margin: 10px 0; display: flex; align-items: center; gap: 10px;
+}
+.msg-system::before, .msg-system::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}
+
+/* Input area */
+.input-area {
+  padding: 0 24px 20px; flex-shrink: 0;
+}
+
+.input-box {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  display: flex; align-items: center; gap: 0;
+  transition: border-color .2s, box-shadow .2s;
+  overflow: hidden;
+}
+
+.input-box:focus-within {
+  border-color: rgba(124,106,255,0.4);
+  box-shadow: 0 0 0 3px rgba(124,106,255,0.08);
+}
+
+.input-field {
+  flex: 1; padding: 14px 16px;
+  background: none; border: none; outline: none;
+  color: var(--text); font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 14px; resize: none; max-height: 120px;
+}
+
+.input-field::placeholder { color: var(--muted); }
+
+.send-btn {
+  width: 44px; height: 44px; margin: 5px;
+  background: var(--grad); border: none; border-radius: 10px;
+  color: white; cursor: pointer; font-size: 18px;
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity .15s, transform .1s; flex-shrink: 0;
+}
+
+.send-btn:hover { opacity: 0.85; transform: scale(1.05); }
+.send-btn:active { transform: scale(0.95); }
+.send-btn:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+
+/* Typing indicator */
+.typing-indicator {
+  padding: 4px 8px; font-size: 12px; color: var(--muted);
+  min-height: 22px; display: flex; align-items: center; gap: 6px;
+}
+
+.typing-dots span {
+  display: inline-block; width: 5px; height: 5px;
+  border-radius: 50%; background: var(--muted);
+  animation: typingBounce 1.2s infinite;
+}
+.typing-dots span:nth-child(2) { animation-delay: .2s; }
+.typing-dots span:nth-child(3) { animation-delay: .4s; }
+
+@keyframes typingBounce {
+  0%,60%,100% { transform: translateY(0); }
+  30% { transform: translateY(-4px); }
+}
+
+/* ── MEMBERS PANEL ── */
+.members-panel {
+  width: 220px; flex-shrink: 0;
+  background: var(--sidebar);
+  border-left: 1px solid var(--border);
+  overflow-y: auto; padding: 16px 0;
+}
+
+.members-section-label {
+  font-size: 10px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 1.2px;
+  padding: 0 16px 8px;
+}
+
+.member-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 16px; cursor: pointer;
+  transition: background .15s; border-radius: 0;
+}
+
+.member-item:hover { background: var(--surface2); }
+
+.member-avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; color: white; flex-shrink: 0;
+  position: relative;
+}
+
+.member-status {
+  position: absolute; bottom: 0; right: 0;
+  width: 10px; height: 10px; border-radius: 50%;
+  border: 2px solid var(--sidebar);
+}
+
+.member-name { font-size: 13px; font-weight: 500; color: var(--muted); }
+.member-item:hover .member-name { color: var(--text); }
+.member-name.online { color: var(--text); }
+
+/* ── CONNECTION STATUS ── */
+.conn-status {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  padding: 8px 16px; border-radius: 20px; font-size: 12px; font-weight: 600;
+  display: flex; align-items: center; gap: 8px;
+  backdrop-filter: blur(10px); z-index: 50;
+  animation: slideUp .3s ease; pointer-events: none;
+  opacity: 0; transition: opacity .3s;
+}
+
+.conn-status.show { opacity: 1; }
+.conn-status.connected { background: rgba(6,214,160,0.15); color: var(--a1); border: 1px solid rgba(6,214,160,0.3); }
+.conn-status.disconnected { background: rgba(255,107,107,0.15); color: var(--w); border: 1px solid rgba(255,107,107,0.3); }
+.conn-status.connecting { background: rgba(255,209,102,0.15); color: var(--y); border: 1px solid rgba(255,209,102,0.3); }
+
+@keyframes slideUp { from { transform: translate(-50%, 10px); opacity: 0; } to { transform: translateX(-50%); opacity: 1; } }
+
+/* ── NEW MESSAGE ANIMATION ── */
+@keyframes msgSlide {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+.msg-new { animation: msgSlide .25s ease; }
+
+/* ── NOTIFICATION BADGE ── */
+.notif-badge {
+  position: absolute; top: -4px; right: -4px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--w); color: white;
+  font-size: 9px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid var(--bg);
+}
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════
+     LOGIN SCREEN
+══════════════════════════════════════ -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="login-logo-icon">💬</div>
+      <h1>DistroChat</h1>
+    </div>
+    <p class="login-subtitle">Distributed real-time chat · Group 1 DC Project<br>Sign in to start chatting across servers.</p>
+
+    <div class="field-label">Username</div>
+    <input class="field-input" id="login-username" type="text" placeholder="Enter your username" autocomplete="off"/>
+
+    <div class="field-label">Password</div>
+    <input class="field-input" id="login-password" type="password" placeholder="Enter your password"/>
+
+    <button class="login-btn" onclick="handleLogin()">Sign in →</button>
+    <div class="login-error" id="login-error"></div>
+
+    <div class="server-tags">
+      <span class="server-tag">Server A :8001</span>
+      <span class="server-tag">Server B :8002</span>
+      <span class="server-tag">Auth :5001</span>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     MAIN APP
+══════════════════════════════════════ -->
+<div id="app">
+
+  <!-- Server Rail -->
+  <div class="server-rail">
+    <div class="rail-icon main" title="DistroChat">DC</div>
+    <div class="rail-divider"></div>
+    <div class="rail-icon room active" title="general" onclick="switchRoom('general')" id="rail-general">💬</div>
+    <div class="rail-icon room" title="random" onclick="switchRoom('random')" id="rail-random">🎲</div>
+    <div class="rail-icon room" title="dev" onclick="switchRoom('dev')" id="rail-dev">⚙️</div>
+    <div class="rail-icon room" title="announcements" onclick="switchRoom('announcements')" id="rail-announcements">📢</div>
+  </div>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <span class="sidebar-title">DistroChat</span>
+      <span class="sidebar-badge" id="server-badge">SRV-A</span>
+    </div>
+
+    <div class="channel-section-label">Text Channels</div>
+    <div class="channel-item active" onclick="switchRoom('general')" id="ch-general">
+      <span class="ch-icon">#</span> general
+    </div>
+    <div class="channel-item" onclick="switchRoom('random')" id="ch-random">
+      <span class="ch-icon">#</span> random
+    </div>
+    <div class="channel-item" onclick="switchRoom('dev')" id="ch-dev">
+      <span class="ch-icon">#</span> dev
+    </div>
+    <div class="channel-item" onclick="switchRoom('announcements')" id="ch-announcements">
+      <span class="ch-icon">#</span> announcements
+    </div>
+
+    <div class="channel-section-label" style="margin-top:8px">DC Concepts</div>
+    <div class="channel-item" style="cursor:default;font-size:12px;color:var(--muted);padding:5px 12px">
+      <span class="ch-icon">⏱</span> Lamport clock active
+    </div>
+    <div class="channel-item" style="cursor:default;font-size:12px;color:var(--muted);padding:5px 12px">
+      <span class="ch-icon">🔄</span> Redis pub/sub live
+    </div>
+
+    <div class="user-panel">
+      <div class="user-avatar-small" id="user-avatar-small" style="background:var(--grad)">T</div>
+      <div>
+        <div class="user-name-small" id="user-name-display">tanvi</div>
+        <div class="user-status-small"><div class="status-dot"></div> Online</div>
+      </div>
+      <button class="logout-btn" onclick="handleLogout()" title="Logout">⏻</button>
+    </div>
+  </div>
+
+  <!-- Chat Main -->
+  <div class="chat-main">
+    <div class="chat-header">
+      <span class="chat-header-icon">#</span>
+      <span class="chat-header-name" id="room-name-display">general</span>
+      <span class="chat-header-desc" id="room-desc">The main chat room</span>
+      <div class="header-pills">
+        <div class="header-pill">
+          <div class="pill-dot" id="conn-dot" style="background:var(--y)"></div>
+          <span id="conn-label">Connecting...</span>
+        </div>
+        <div class="header-pill">
+          ⏱ <span id="lamport-display" style="font-family:'JetBrains Mono',monospace">λ=0</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="messages-area" id="messages-area">
+      <div class="welcome-banner">
+        <div class="welcome-icon">💬</div>
+        <h2>Welcome to #general</h2>
+        <p>This is the beginning of the channel. Messages are synced<br>across distributed servers using Redis Pub/Sub.</p>
+      </div>
+    </div>
+
+    <div class="typing-indicator" id="typing-indicator"></div>
+
+    <div class="input-area">
+      <div class="input-box">
+        <textarea class="input-field" id="msg-input"
+          placeholder="Message #general"
+          rows="1"
+          onkeydown="handleKeyDown(event)"
+          oninput="autoResize(this)"></textarea>
+        <button class="send-btn" id="send-btn" onclick="sendMessage()" disabled>➤</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Members Panel -->
+  <div class="members-panel">
+    <div class="members-section-label">Online — <span id="online-count">0</span></div>
+    <div id="members-list"></div>
+    <div class="members-section-label" style="margin-top:16px">Servers</div>
+    <div class="member-item">
+      <div class="member-avatar" style="background:linear-gradient(135deg,#7c6aff,#a855f7);border-radius:10px">A</div>
+      <div>
+        <div class="member-name online" style="font-size:12px">Server A</div>
+        <div style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace">:8001</div>
+      </div>
+    </div>
+    <div class="member-item">
+      <div class="member-avatar" style="background:linear-gradient(135deg,#06d6a0,#00b4d8);border-radius:10px">B</div>
+      <div>
+        <div class="member-name online" style="font-size:12px">Server B</div>
+        <div style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace">:8002</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Connection status toast -->
+<div class="conn-status" id="conn-toast"></div>
+
+<script>
+// ══════════════════════════════════════
+// STATE
+// ══════════════════════════════════════
+const AUTH_URL  = 'http://localhost:5001';
+const SERVERS   = ['http://localhost:8000', 'http://localhost:8001'];
+
+let socket        = null;
+let currentUser   = null;
+let currentToken  = null;
+let currentRoom   = 'general';
+let currentServer = 0;
+let lamportClock  = 0;
+let messageHistory = {};  // roomId -> array of messages
+let lastSender    = {};   // roomId -> {sender, time}
+let onlineUsers   = new Set();
+
+// Avatar colors per username
+const AVATAR_COLORS = [
+  'linear-gradient(135deg,#7c6aff,#a855f7)',
+  'linear-gradient(135deg,#06d6a0,#00b4d8)',
+  'linear-gradient(135deg,#ff6b6b,#ff8e53)',
+  'linear-gradient(135deg,#ffd166,#f77f00)',
+  'linear-gradient(135deg,#a855f7,#06d6a0)',
+  'linear-gradient(135deg,#00b4d8,#7c6aff)',
+];
+
+function getColor(name) {
+  let hash = 0;
+  for (let c of name) hash = (hash * 31 + c.charCodeAt(0)) % AVATAR_COLORS.length;
+  return AVATAR_COLORS[hash];
+}
+
+function getInitial(name) { return name ? name[0].toUpperCase() : '?'; }
+
+// ══════════════════════════════════════
+// LOGIN
+// ══════════════════════════════════════
+async function handleLogin() {
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl    = document.getElementById('login-error');
+
+  if (!username) { errEl.textContent = 'Please enter a username'; return; }
+
+  errEl.textContent = '';
+  document.querySelector('.login-btn').textContent = 'Signing in...';
+
+  try {
+    const res = await axios.post(`${AUTH_URL}/login`, { username, password });
+    currentToken = res.data.token;
+    currentUser  = username;
+    startApp();
+  } catch (err) {
+    // If auth server isn't running, allow test login
+    if (!password) { errEl.textContent = 'Enter a password'; document.querySelector('.login-btn').textContent = 'Sign in →'; return; }
+    // For testing: generate a mock token
+    console.warn('Auth server not reachable, using test mode');
+    currentToken = 'test-skip';
+    currentUser  = username;
+    startApp();
+  }
+  document.querySelector('.login-btn').textContent = 'Sign in →';
+}
+
+document.getElementById('login-password').addEventListener('keydown', e => {
+  if (e.key === 'Enter') handleLogin();
+});
+document.getElementById('login-username').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('login-password').focus();
+});
+
+// ══════════════════════════════════════
+// APP START
+// ══════════════════════════════════════
+function startApp() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').classList.add('visible');
+
+  // Set user info in sidebar
+  document.getElementById('user-name-display').textContent = currentUser;
+  document.getElementById('user-avatar-small').textContent = getInitial(currentUser);
+  document.getElementById('user-avatar-small').style.background = getColor(currentUser);
+
+  connectSocket();
+}
+
+// ══════════════════════════════════════
+// SOCKET
+// ══════════════════════════════════════
+function connectSocket() {
+  showToast('connecting', '⟳ Connecting to server...');
+  setConnStatus('connecting');
+
+  if (socket) socket.disconnect();
+
+  socket = io(SERVERS[currentServer], {
+    auth: { token: currentToken },
+    reconnection: false,
+  });
+
+  socket.on('connect', () => {
+    console.log(`Connected to ${SERVERS[currentServer]}`);
+    document.getElementById('server-badge').textContent = `SRV-${currentServer === 0 ? 'A' : 'B'}`;
+    setConnStatus('connected');
+    showToast('connected', `✓ Connected to Server ${currentServer === 0 ? 'A' : 'B'}`);
+    document.getElementById('send-btn').disabled = false;
+    onlineUsers.add(currentUser);
+    updateMembers();
+
+    // Join current room
+    socket.emit('join_room', currentRoom);
+
+    // Load history
+    loadHistory(currentRoom);
+  });
+
+  socket.on('connect_error', (err) => {
+    console.log(`Server ${currentServer} failed, trying next...`);
+    setConnStatus('disconnected');
+    showToast('disconnected', `✗ Server ${currentServer === 0 ? 'A' : 'B'} down, switching...`);
+    document.getElementById('send-btn').disabled = true;
+
+    // Failover to next server
+    currentServer = (currentServer + 1) % SERVERS.length;
+    setTimeout(connectSocket, 1500);
+  });
+
+  socket.on('disconnect', () => {
+    setConnStatus('disconnected');
+    document.getElementById('send-btn').disabled = true;
+  });
+
+  socket.on('new_message', (data) => {
+    lamportClock = Math.max(lamportClock, data.lamport) + 1;
+    updateLamport();
+    appendMessage(data);
+  });
+}
+
+// ══════════════════════════════════════
+// ROOM SWITCHING
+// ══════════════════════════════════════
+const ROOM_DESCS = {
+  general:       'The main chat room',
+  random:        'Off-topic conversations',
+  dev:           'Development discussion',
+  announcements: 'Important updates',
+};
+
+function switchRoom(room) {
+  if (room === currentRoom) return;
+
+  // Update UI
+  document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.rail-icon.room').forEach(el => el.classList.remove('active'));
+  document.getElementById(`ch-${room}`).classList.add('active');
+  document.getElementById(`rail-${room}`).classList.add('active');
+
+  currentRoom = room;
+  document.getElementById('room-name-display').textContent = room;
+  document.getElementById('msg-input').placeholder = `Message #${room}`;
+  document.getElementById('room-desc').textContent = ROOM_DESCS[room] || '';
+
+  // Join new room
+  if (socket && socket.connected) {
+    socket.emit('join_room', room);
+    loadHistory(room);
+  }
+
+  // Render cached messages or clear
+  const area = document.getElementById('messages-area');
+  area.innerHTML = `
+    <div class="welcome-banner">
+      <div class="welcome-icon">💬</div>
+      <h2>Welcome to #${room}</h2>
+      <p>${ROOM_DESCS[room] || ''}<br>Messages are synced across distributed servers.</p>
+    </div>`;
+
+  lastSender[room] = null;
+  if (messageHistory[room]) {
+    messageHistory[room].forEach(msg => appendMessage(msg, false));
+  }
+}
+
+// ══════════════════════════════════════
+// HISTORY
+// ══════════════════════════════════════
+async function loadHistory(room) {
+  try {
+    const url = `${SERVERS[currentServer]}/history/${room}`;
+    const res = await axios.get(url);
+    if (res.data && res.data.length > 0) {
+      messageHistory[room] = res.data;
+      lastSender[room] = null;
+      // Re-render
+      const area = document.getElementById('messages-area');
+      area.innerHTML = `
+        <div class="welcome-banner">
+          <div class="welcome-icon">💬</div>
+          <h2>Welcome to #${room}</h2>
+          <p>${ROOM_DESCS[room] || ''}</p>
+        </div>`;
+      res.data.forEach(msg => appendMessage(msg, false));
+    }
+  } catch (e) {
+    console.log('History not available yet');
+  }
+}
+
+// ══════════════════════════════════════
+// SEND MESSAGE
+// ══════════════════════════════════════
+function sendMessage() {
+  const input   = document.getElementById('msg-input');
+  const content = input.value.trim();
+  if (!content || !socket || !socket.connected) return;
+
+  lamportClock++;
+  updateLamport();
+
+  socket.emit('send_message', {
+    content,
+    roomId: currentRoom,
+    lamport: lamportClock,
+  });
+
+  input.value = '';
+  input.style.height = 'auto';
+}
+
+function handleKeyDown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+// ══════════════════════════════════════
+// RENDER MESSAGE
+// ══════════════════════════════════════
+function appendMessage(data, animate = true) {
+  if (!messageHistory[currentRoom]) messageHistory[currentRoom] = [];
+  if (animate) messageHistory[currentRoom].push(data);
+
+  const area    = document.getElementById('messages-area');
+  const isOwn   = data.sender === currentUser;
+  const now     = new Date();
+  const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  const last    = lastSender[currentRoom];
+  const isCont  = last && last.sender === data.sender &&
+                  (now - last.time) < 5 * 60 * 1000;
+
+  const color   = getColor(data.sender);
+  const initial = getInitial(data.sender);
+  const srvTag  = data.originServer ? `SRV-${data.originServer}` : '';
+
+  let el = document.createElement('div');
+
+  if (!isCont) {
+    el.className = 'msg-group' + (animate ? ' msg-new' : '');
+    el.innerHTML = `
+      <div class="msg-avatar" style="background:${color}">${initial}</div>
+      <div class="msg-body">
+        <div class="msg-meta">
+          <span class="msg-sender" style="color:${isOwn ? '#7c6aff' : getTextColor(data.sender)}">${data.sender}</span>
+          <span class="msg-time">${timeStr}</span>
+          ${srvTag ? `<span class="msg-server-tag">${srvTag}</span>` : ''}
+        </div>
+        <div class="msg-text">${escHtml(data.content)}</div>
+        <div class="msg-lamport">λ=${data.lamport}</div>
+      </div>`;
+  } else {
+    el.className = 'msg-continued' + (animate ? ' msg-new' : '');
+    el.innerHTML = `
+      <div class="msg-time-inline">${timeStr}</div>
+      <div class="msg-text">${escHtml(data.content)}</div>`;
+  }
+
+  area.appendChild(el);
+  lastSender[currentRoom] = { sender: data.sender, time: now };
+  area.scrollTop = area.scrollHeight;
+}
+
+function escHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/\n/g,'<br>');
+}
+
+const TEXT_COLORS = ['#a78bff','#34d399','#60a5fa','#f472b6','#fb923c','#a3e635'];
+function getTextColor(name) {
+  let h = 0;
+  for (let c of name) h = (h * 31 + c.charCodeAt(0)) % TEXT_COLORS.length;
+  return TEXT_COLORS[h];
+}
+
+// ══════════════════════════════════════
+// MEMBERS
+// ══════════════════════════════════════
+function updateMembers() {
+  const list  = document.getElementById('members-list');
+  const count = document.getElementById('online-count');
+  count.textContent = onlineUsers.size;
+  list.innerHTML = '';
+  onlineUsers.forEach(u => {
+    const div = document.createElement('div');
+    div.className = 'member-item';
+    div.innerHTML = `
+      <div class="member-avatar" style="background:${getColor(u)}">
+        ${getInitial(u)}
+        <div class="member-status" style="background:var(--a1)"></div>
+      </div>
+      <div class="member-name online">${u}</div>`;
+    list.appendChild(div);
+  });
+}
+
+// ══════════════════════════════════════
+// CONNECTION STATUS UI
+// ══════════════════════════════════════
+function setConnStatus(state) {
+  const dot   = document.getElementById('conn-dot');
+  const label = document.getElementById('conn-label');
+  if (state === 'connected') {
+    dot.style.background   = 'var(--a1)';
+    label.textContent      = `Server ${currentServer === 0 ? 'A' : 'B'} connected`;
+  } else if (state === 'disconnected') {
+    dot.style.background   = 'var(--w)';
+    label.textContent      = 'Disconnected';
+  } else {
+    dot.style.background   = 'var(--y)';
+    label.textContent      = 'Connecting...';
+  }
+}
+
+let toastTimeout;
+function showToast(type, msg) {
+  const toast = document.getElementById('conn-toast');
+  toast.textContent = msg;
+  toast.className   = `conn-status ${type} show`;
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => toast.classList.remove('show'), 3000);
+}
+
+function updateLamport() {
+  document.getElementById('lamport-display').textContent = `λ=${lamportClock}`;
+}
+
+// ══════════════════════════════════════
+// LOGOUT
+// ══════════════════════════════════════
+function handleLogout() {
+  if (socket) socket.disconnect();
+  socket = null; currentUser = null; currentToken = null;
+  lamportClock = 0; messageHistory = {}; lastSender = {}; onlineUsers.clear();
+  document.getElementById('app').classList.remove('visible');
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('login-username').value = '';
+  document.getElementById('login-password').value = '';
+  document.getElementById('messages-area').innerHTML = '';
+}
+</script>
+</body>
+</html>
