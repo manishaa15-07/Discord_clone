@@ -67,6 +67,11 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
       console.log(`Connected successfully to ${serverUrl}`);
       setIsConnected(true);
       setIsReconnecting(false);
+
+      // Tell the server we are joining the room
+      socket.emit("join_room", room);
+      socket.emit("join", room); // Fallback if server watches for "join" instead
+      socket.emit("joinRoom", room); // Fallback
     });
 
     socket.on("disconnect", (reason) => {
@@ -84,19 +89,33 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
       }, 1000);
     });
 
-    socket.on("new_message", (data) => {
-      clockRef.current = Math.max(clockRef.current, data.lamport) + 1;
+    const handleNewMessage = (data) => {
+      // Handle edge cases where backend might return 'room' instead of 'roomId'
+      const normalizedData = {
+        ...data,
+        roomId: data.roomId || data.room || room
+      };
+      
+      const lamport = isNaN(normalizedData.lamport) ? (clockRef.current + 1) : normalizedData.lamport;
+      clockRef.current = Math.max(clockRef.current, lamport) + 1;
+      
       setMessages((prev) => {
-        const updated = [...prev, data];
+        const updated = [...prev, normalizedData];
         return updated.sort((a, b) => a.lamport - b.lamport);
       });
-    });
+    };
+
+    socket.on("new_message", handleNewMessage);
+    socket.on("receive_message", handleNewMessage); // Often used in tutorials instead of new_message
+    socket.on("message", handleNewMessage); // Another common fallback
 
     return () => {
       socket.off("connect");
       socket.off("disconnect");
       socket.off("connect_error");
       socket.off("new_message");
+      socket.off("receive_message");
+      socket.off("message");
       socket.disconnect();
     };
   }, [serverIdx, token, isMockMode, room]);
