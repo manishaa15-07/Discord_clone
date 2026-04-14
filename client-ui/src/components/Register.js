@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import axios from "axios";
 import { MessageSquare, ArrowRight, Loader2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
+import { AUTH_SERVER_URL } from "../config";
 
 function Register({ setToken, setUsername, isMockMode, setIsMockMode }) {
   const [localUsername, setLocalUsername] = useState("");
@@ -37,7 +38,7 @@ function Register({ setToken, setUsername, isMockMode, setIsMockMode }) {
 
     try {
       // 1. Register
-      await axios.post("http://172.27.46.83:5001/register", {
+      await axios.post(`${AUTH_SERVER_URL}/register`, {
         username: localUsername.trim(),
         password,
         email: email.trim(),
@@ -45,7 +46,7 @@ function Register({ setToken, setUsername, isMockMode, setIsMockMode }) {
       });
       
       // 2. Auto-login after successful registration
-      const res = await axios.post("http://172.27.46.83:5001/login", { 
+      const res = await axios.post(`${AUTH_SERVER_URL}/login`, { 
         username: localUsername.trim(),
         password: password
       });

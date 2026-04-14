@@ -3,8 +3,9 @@ import io from "socket.io-client";
 import axios from "axios";
 import { Hash, Send, LogOut, Radio, WifiOff, MessageSquare, Settings, AlertTriangle, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { AUTH_SERVER_URL, CHAT_SERVER_URLS } from "./config";
 
-const SERVERS = ["http://localhost:8001", "http://localhost:8002"];
+const SERVERS = CHAT_SERVER_URLS;
 
 function ChatWindow({ token, username, onLogout, isMockMode }) {
   const [messages, setMessages] = useState([]);
@@ -143,7 +144,7 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
   const handleLogout = async () => {
     if (!isMockMode) {
       try {
-        await axios.post("http://172.27.46.83:5001/logout", {}, {
+        await axios.post(`${AUTH_SERVER_URL}/logout`, {}, {
           headers: { Authorization: `Bearer ${token}` }
         });
       } catch (err) {
@@ -174,7 +175,7 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
     }
 
     try {
-      await axios.delete("http://172.27.46.83:5001/account", {
+      await axios.delete(`${AUTH_SERVER_URL}/account`, {
         headers: { Authorization: `Bearer ${token}` },
         data: { password: deletePassword }
       });

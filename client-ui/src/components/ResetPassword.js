@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { MessageSquare, ArrowRight, Loader2, CheckCircle2 } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
+import { AUTH_SERVER_URL } from "../config";
 
 function useQuery() {
   const { search } = useLocation();
@@ -48,7 +49,7 @@ function ResetPassword({ isMockMode }) {
     }
 
     try {
-      await axios.post("http://172.27.46.83:5001/reset-password", { 
+      await axios.post(`${AUTH_SERVER_URL}/reset-password`, { 
         token, 
         newPassword: password 
       });

@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import axios from "axios";
 import { MessageSquare, ArrowRight, Loader2, CheckCircle2 } from "lucide-react";
 import { Link } from "react-router-dom";
+import { AUTH_SERVER_URL } from "../config";
 
 function ForgotPassword({ isMockMode }) {
   const [email, setEmail] = useState("");
@@ -28,7 +29,7 @@ function ForgotPassword({ isMockMode }) {
     }
 
     try {
-      await axios.post("http://172.27.46.83:5001/forgot-password", { email: email.trim() });
+      await axios.post(`${AUTH_SERVER_URL}/forgot-password`, { email: email.trim() });
       setSuccess(true);
     } catch (err) {
       console.error("Forgot password failed:", err);

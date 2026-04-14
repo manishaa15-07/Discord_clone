@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import axios from "axios";
 import { MessageSquare, ArrowRight, Loader2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
+import { AUTH_SERVER_URL } from "../config";
 
 function Login({ setToken, setUsername, isMockMode, setIsMockMode }) {
   const [localUsername, setLocalUsername] = useState("");
@@ -34,7 +35,7 @@ function Login({ setToken, setUsername, isMockMode, setIsMockMode }) {
     setError("");
 
     try {
-      const res = await axios.post("http://172.27.46.83:5001/login", { 
+      const res = await axios.post(`${AUTH_SERVER_URL}/login`, { 
         username: localUsername.trim(),
         password: password
       });
