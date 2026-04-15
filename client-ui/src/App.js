@@ -8,9 +8,22 @@ import ResetPassword from "./components/ResetPassword";
 import "./index.css";
 
 function App() {
-  const [token, setToken] = useState(null);
-  const [username, setUsername] = useState("");
-  const [isMockMode, setIsMockMode] = useState(false);
+  const [token, setToken] = useState(() => localStorage.getItem("discord_token") || null);
+  const [username, setUsername] = useState(() => localStorage.getItem("discord_username") || "");
+
+  const storeToken = (newToken) => {
+    setToken(newToken);
+    if (newToken) localStorage.setItem("discord_token", newToken);
+    else localStorage.removeItem("discord_token");
+  };
+
+  const storeUsername = (newUsername) => {
+    setUsername(newUsername);
+    if (newUsername) localStorage.setItem("discord_username", newUsername);
+    else localStorage.removeItem("discord_username");
+  };
+
+
 
   return (
     <>
@@ -28,10 +41,8 @@ function App() {
             element={
               token ? <Navigate to="/chat" replace /> :
               <Login 
-                setToken={setToken} 
-                setUsername={setUsername} 
-                isMockMode={isMockMode} 
-                setIsMockMode={setIsMockMode} 
+                setToken={storeToken} 
+                setUsername={storeUsername} 
               />
             } 
           />
@@ -41,22 +52,20 @@ function App() {
             element={
               token ? <Navigate to="/chat" replace /> :
               <Register 
-                setToken={setToken} 
-                setUsername={setUsername} 
-                isMockMode={isMockMode} 
-                setIsMockMode={setIsMockMode} 
+                setToken={storeToken} 
+                setUsername={storeUsername} 
               />
             } 
           />
           
           <Route 
             path="/forgot-password" 
-            element={<ForgotPassword isMockMode={isMockMode} />} 
+            element={<ForgotPassword />} 
           />
           
           <Route 
             path="/reset-password" 
-            element={<ResetPassword isMockMode={isMockMode} />} 
+            element={<ResetPassword />} 
           />
           
           <Route 
@@ -66,10 +75,9 @@ function App() {
               <ChatWindow 
                 token={token} 
                 username={username || "TestUser"} 
-                isMockMode={isMockMode} 
                 onLogout={() => { 
-                  setToken(null); 
-                  setIsMockMode(false); 
+                  storeToken(null); 
+                  storeUsername("");
                 }} 
               />
             } 

@@ -1,28 +1,45 @@
 import { useEffect, useRef, useState } from "react";
 import io from "socket.io-client";
 import axios from "axios";
-import { Hash, Send, LogOut, Radio, WifiOff, MessageSquare, Settings, AlertTriangle, Loader2 } from "lucide-react";
+import { Hash, Send, LogOut, Radio, WifiOff, MessageSquare, Settings, AlertTriangle, Loader2, Reply, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { AUTH_SERVER_URL, CHAT_SERVER_URLS } from "./config";
+import UserProfileModal from "./components/UserProfileModal";
 
 const SERVERS = CHAT_SERVER_URLS;
 
-function ChatWindow({ token, username, onLogout, isMockMode }) {
-  const [messages, setMessages] = useState([]);
+function ChatWindow({ token, username, onLogout }) {
+  const [messages, setMessages] = useState(() => {
+    try {
+      const saved = localStorage.getItem("discord_messages");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.warn("Failed to load messages from local storage", e);
+    }
+    return [];
+  });
   const [input, setInput] = useState("");
   const [room, setRoom] = useState("general");
   const [serverIdx, setServerIdx] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   
+  // Reply Feature State
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [profileTarget, setProfileTarget] = useState(null);
+  
   // Settings / Delete Account State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
   const [deletePassword, setDeletePassword] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   
   const socketRef = useRef(null);
-  const clockRef = useRef(0);
+  
+  // Set initial clock to max of loaded messages
+  const clockRef = useRef(messages.length > 0 ? Math.max(...messages.map(m => m.lamport || 0), 0) : 0);
+  
   const messagesEndRef = useRef(null);
   const navigate = useNavigate();
   
@@ -32,25 +49,17 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  // Sync messages to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem("discord_messages", JSON.stringify(messages));
+  }, [messages]);
+
   useEffect(() => {
     scrollToBottom();
   }, [messages, room]);
 
   useEffect(() => {
-    if (isMockMode) {
-      setIsConnected(true);
-      setIsReconnecting(false);
-      setMessages([
-        {
-          sender: "System",
-          content: "Welcome to Offline Mock Mode. Your messages will be echoed back.",
-          roomId: room,
-          lamport: clockRef.current,
-          originServer: "mock",
-        },
-      ]);
-      return () => {};
-    }
+
 
     const serverUrl = SERVERS[serverIdx];
     console.log(`Attempting connection to ${serverUrl}...`);
@@ -90,10 +99,28 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
     });
 
     const handleNewMessage = (data) => {
-      // Handle edge cases where backend might return 'room' instead of 'roomId'
+      let parsedContent = data.content || "";
+      let replyToObj = data.replyTo || null;
+      
+      if (typeof parsedContent === "string" && parsedContent.startsWith("[REPLY-JSON::|")) {
+        const endIndex = parsedContent.indexOf("|]:: ");
+        if (endIndex !== -1) {
+          try {
+            const jsonStr = decodeURIComponent(parsedContent.substring(14, endIndex));
+            replyToObj = JSON.parse(jsonStr);
+            parsedContent = parsedContent.substring(endIndex + 5);
+          } catch (e) {
+            // failed to parse
+          }
+        }
+      }
+
       const normalizedData = {
         ...data,
-        roomId: data.roomId || data.room || room
+        content: parsedContent,
+        roomId: data.roomId || data.room || room,
+        timestamp: data.timestamp || data.createdAt || data.time || new Date().toISOString(),
+        replyTo: replyToObj
       };
       
       const lamport = isNaN(normalizedData.lamport) ? (clockRef.current + 1) : normalizedData.lamport;
@@ -118,7 +145,7 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
       socket.off("message");
       socket.disconnect();
     };
-  }, [serverIdx, token, isMockMode, room]);
+  }, [serverIdx, token, room]);
 
   const sendMessage = (e) => {
     e?.preventDefault();
@@ -126,49 +153,35 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
     
     clockRef.current += 1;
     
+    let finalContent = input.trim();
+    if (replyingTo) {
+      const replyData = JSON.stringify({ sender: replyingTo.sender, content: replyingTo.content });
+      finalContent = `[REPLY-JSON::|${encodeURIComponent(replyData)}|]:: ${finalContent}`;
+    }
+
     const payload = {
       sender: username,
-      content: input.trim(),
+      content: finalContent,
       roomId: room,
       lamport: clockRef.current,
-      originServer: isMockMode ? "mock" : "" 
+      originServer: "",
+      timestamp: new Date().toISOString()
     };
     
-    if (isMockMode) {
-      setMessages((prev) => {
-        const updated = [...prev, payload];
-        return updated.sort((a, b) => a.lamport - b.lamport);
-      });
-      setInput("");
-      setTimeout(() => {
-        clockRef.current += 1;
-        setMessages((prev) => {
-          const updated = [...prev, {
-            sender: "Bot",
-            content: `Echo: ${payload.content}`,
-            roomId: room,
-            lamport: clockRef.current,
-            originServer: "mock"
-          }];
-          return updated.sort((a, b) => a.lamport - b.lamport);
-        });
-      }, 500);
-      return;
-    }
+
 
     socketRef.current.emit("send_message", payload);
     setInput("");
+    setReplyingTo(null);
   };
 
   const handleLogout = async () => {
-    if (!isMockMode) {
-      try {
-        await axios.post(`${AUTH_SERVER_URL}/logout`, {}, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-      } catch (err) {
-        console.error("Logout error:", err);
-      }
+    try {
+      await axios.post(`${AUTH_SERVER_URL}/logout`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+    } catch (err) {
+      console.error("Logout error:", err);
     }
     onLogout();
     navigate("/login");
@@ -183,15 +196,7 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
     setIsDeleting(true);
     setDeleteError("");
 
-    if (isMockMode) {
-      setTimeout(() => {
-        setIsDeleting(false);
-        setIsSettingsOpen(false);
-        onLogout();
-        navigate("/register");
-      }, 800);
-      return;
-    }
+
 
     try {
       await axios.delete(`${AUTH_SERVER_URL}/account`, {
@@ -213,6 +218,34 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
   };
 
   const currentRoomMessages = messages.filter((m) => m.roomId === room);
+
+  const formatMessageTime = (isoString) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    const now = new Date();
+    
+    const isToday = date.getDate() === now.getDate() && 
+                    date.getMonth() === now.getMonth() && 
+                    date.getFullYear() === now.getFullYear();
+                    
+    const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
+    if (isToday) {
+      return `Today at ${timeStr}`;
+    }
+    
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const isYesterday = yesterday.getDate() === date.getDate() && 
+                        yesterday.getMonth() === date.getMonth() && 
+                        yesterday.getFullYear() === date.getFullYear();
+                        
+    if (isYesterday) {
+      return `Yesterday at ${timeStr}`;
+    }
+    
+    return `${date.toLocaleDateString()} ${timeStr}`;
+  };
 
   return (
     <div className="app-container">
@@ -254,7 +287,10 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
         </div>
         
         <div className="sidebar-footer">
-          <div className="user-avatar">
+          <div className="user-avatar"
+               onClick={() => setProfileTarget(username)}
+               style={{ cursor: 'pointer' }}
+               title="View Profile">
             {username.substring(0, 2).toUpperCase()}
           </div>
           <div className="user-info">
@@ -276,7 +312,7 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
 
           {/* Logout Button */}
           <button 
-            onClick={handleLogout}
+            onClick={() => setIsLogoutModalOpen(true)}
             style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}
             title="Log out"
           >
@@ -302,27 +338,63 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
               <p>This is the beginning of the chat.</p>
             </div>
           ) : (
-            currentRoomMessages.map((m, i) => (
-              <div key={i} className="message">
-                <div className="message-avatar">
+            currentRoomMessages.map((m, i) => {
+              const isCurrentUser = m.sender === username;
+              return (
+              <div key={i} className={`message ${isCurrentUser ? "message-own" : ""}`}>
+                <div className="message-avatar" 
+                     onClick={() => setProfileTarget(m.sender)}
+                     title={`View ${m.sender}'s Profile`}
+                     style={isCurrentUser ? { background: 'linear-gradient(135deg, #CC5500, #ff8c42)', cursor: 'pointer' } : { cursor: 'pointer' }}>
                   {m.sender.substring(0, 2).toUpperCase()}
                 </div>
                 <div className="message-content">
+                  {m.replyTo && (
+                    <div className="message-replied">
+                      <div className="replied-line"></div>
+                      <span className="replied-user">@{m.replyTo.sender}</span>
+                      <span className="replied-text">
+                        {m.replyTo.content.substring(0, 40)}
+                        {m.replyTo.content.length > 40 ? '...' : ''}
+                      </span>
+                    </div>
+                  )}
                   <div className="message-header">
-                    <span className="message-sender">{m.sender}</span>
+                    <span className="message-sender">{isCurrentUser ? "You" : m.sender}</span>
                     <span className="message-meta">
-                      Clock: <span className="lamport-badge">{m.lamport}</span>
+                      {formatMessageTime(m.timestamp)}
                     </span>
                   </div>
                   <div className="message-text">{m.content}</div>
                 </div>
+                <div className="message-actions">
+                  <button className="action-button" onClick={() => setReplyingTo(m)} title="Reply">
+                    <Reply size={16} />
+                  </button>
+                </div>
               </div>
-            ))
+            )})
           )}
           <div ref={messagesEndRef} />
         </div>
         
         <div className="input-area">
+          {replyingTo && (
+            <div className="replying-to-bar">
+              <div className="replying-to-info">
+                <Reply size={14} className="replying-icon" />
+                <span className="replying-to-text">
+                  Replying to <span className="replying-to-username">@{replyingTo.sender}</span>
+                </span>
+                <span className="replying-to-preview">
+                  "{replyingTo.content.substring(0, 40)}{replyingTo.content.length > 40 ? '...' : ''}"
+                </span>
+              </div>
+              <button className="cancel-reply" onClick={() => setReplyingTo(null)} title="Cancel reply">
+                <X size={16} />
+              </button>
+            </div>
+          )}
           <form className="message-form" onSubmit={sendMessage}>
             <input
               type="text"
@@ -394,6 +466,47 @@ function ChatWindow({ token, username, onLogout, isMockMode }) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Logout Modal Setup */}
+      {isLogoutModalOpen && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, animation: 'fadeInSlideUp 0.2s ease-out forwards' }}>
+          <div className="login-card" style={{ width: '400px', padding: '24px' }}>
+            <h2 style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-main)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <LogOut size={24} color="#ed4245" /> Log Out
+            </h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 24 }}>Are you sure you want to log out of your account?</p>
+            
+            <div style={{ display: 'flex', gap: 12, marginTop: 24 }}>
+              <button 
+                className="btn-secondary" 
+                style={{ flex: 1, padding: 12, background: 'var(--surface-light)', color: 'var(--text-main)', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}
+                onClick={() => setIsLogoutModalOpen(false)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn-primary" 
+                style={{ flex: 1, background: '#ed4245', borderColor: '#ed4245', fontWeight: 600 }}
+                onClick={() => {
+                  setIsLogoutModalOpen(false);
+                  handleLogout();
+                }}
+              >
+                Confirm Logout
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {profileTarget && (
+        <UserProfileModal 
+          username={profileTarget} 
+          currentUser={username} 
+          token={token} 
+          onClose={() => setProfileTarget(null)} 
+        />
       )}
     </div>
   );

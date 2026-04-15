@@ -4,20 +4,14 @@ import { MessageSquare, ArrowRight, Loader2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { AUTH_SERVER_URL } from "../config";
 
-function Login({ setToken, setUsername, isMockMode, setIsMockMode }) {
+function Login({ setToken, setUsername }) {
   const [localUsername, setLocalUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const navigate = useNavigate();
 
-  const handleMockLogin = () => {
-    setIsMockMode(true);
-    let mockUser = localUsername.trim() || "TestUser";
-    setUsername(mockUser);
-    setToken("mock-token");
-    navigate("/chat");
-  };
+
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -26,10 +20,7 @@ function Login({ setToken, setUsername, isMockMode, setIsMockMode }) {
       return;
     }
     
-    if (isMockMode) {
-      handleMockLogin();
-      return;
-    }
+
 
     setIsLoading(true);
     setError("");
@@ -111,7 +102,7 @@ function Login({ setToken, setUsername, isMockMode, setIsMockMode }) {
             type="submit"
             className="btn-primary"
             style={{ marginTop: 16 }}
-            disabled={isLoading || (!localUsername.trim() && !isMockMode)}
+            disabled={isLoading || !localUsername.trim()}
           >
             {isLoading ? (
               <><Loader2 size={18} className="spin" style={{ animation: 'pulse 1s infinite' }} /> Connecting...</>
@@ -127,14 +118,7 @@ function Login({ setToken, setUsername, isMockMode, setIsMockMode }) {
             </Link>
           </p>
           
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={handleMockLogin}
-            style={{ marginTop: 12, width: '100%', background: 'var(--surface-light)', color: 'var(--text-main)', padding: '12px', borderRadius: '4px', border: '1px solid var(--border-color)', cursor: 'pointer', fontWeight: 600 }}
-          >
-            Test UI Offline
-          </button>
+
         </form>
       </div>
     </div>
