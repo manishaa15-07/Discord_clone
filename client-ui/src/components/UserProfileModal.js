@@ -1,14 +1,31 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
-import { X, Loader2, Info } from "lucide-react";
+import { X, Loader2, Info, Key } from "lucide-react";
 import { AUTH_SERVER_URL } from "../config";
-
 function UserProfileModal({ username, currentUser, token, onClose }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error] = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetMessage, setResetMessage] = useState("");
 
   const isSelf = username === currentUser;
+
+  const handleResetPassword = async () => {
+    if (!profile?.email) return;
+    setResetLoading(true);
+    setResetMessage("");
+    try {
+      await axios.post(`${AUTH_SERVER_URL}/forgot-password`, { email: profile.email });
+      setResetMessage("Reset link sent!");
+      setTimeout(() => setResetMessage(""), 5000);
+    } catch (err) {
+      setResetMessage(err.response?.data?.error || "Failed to send reset email");
+      setTimeout(() => setResetMessage(""), 5000);
+    } finally {
+      setResetLoading(false);
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -99,6 +116,30 @@ function UserProfileModal({ username, currentUser, token, onClose }) {
                    </div>
                  )}
               </div>
+
+              {isSelf && profile.email && (
+                <div style={{ marginTop: 24 }}>
+                  <button 
+                    className="btn-secondary"
+                    onClick={handleResetPassword}
+                    disabled={resetLoading}
+                    style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}
+                  >
+                    {resetLoading ? <Loader2 size={16} className="spin" /> : <Key size={16} />}
+                    {resetLoading ? "Sending..." : "Send Password Reset Link"}
+                  </button>
+                  {resetMessage && (
+                    <p style={{ 
+                      marginTop: 8, 
+                      fontSize: 12, 
+                      textAlign: 'center', 
+                      color: resetMessage === "Reset link sent!" ? 'var(--success)' : 'var(--error)' 
+                    }}>
+                      {resetMessage}
+                    </p>
+                  )}
+                </div>
+              )}
             </>
           )}
         </div>

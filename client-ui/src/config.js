@@ -9,6 +9,6 @@ export const AUTH_SERVER_URL = "http://172.27.46.83:5001";
 
 // Sample Chat Server URLs for failover (update IPs and ports as needed)
 export const CHAT_SERVER_URLS = [
-  "http://172.27.46.83:8000",
-  "http://172.27.46.83:8001"
+  "http://172.27.46.21:8000",
+  "http://172.27.46.21:8001"
 ];
