@@ -43,7 +43,7 @@ function ChatWindow({ token, username, onLogout }) {
   const messagesEndRef = useRef(null);
   const navigate = useNavigate();
   
-  const rooms = ["general", "random", "tech"];
+  const rooms = ["general", "random", "tech", "sports", "movies", "music", "gaming"];
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
