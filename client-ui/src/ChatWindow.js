@@ -29,6 +29,55 @@ function ChatWindow({ token, username, onLogout }) {
   const [editingMessage, setEditingMessage] = useState(null);
   const [deletingMessage, setDeletingMessage] = useState(null);
   const [profileTarget, setProfileTarget] = useState(null);
+
+  // Channel Membership State
+  const [joinedChannels, setJoinedChannels] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`discord_channels_${username}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return ["general"];
+  });
+  const [channelToJoin, setChannelToJoin] = useState(null);
+  const [channelToLeave, setChannelToLeave] = useState(null);
+
+  const roomRef = useRef(room);
+  useEffect(() => { roomRef.current = room; }, [room]);
+
+  const messagesRef = useRef(messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  
+  const syncTimers = useRef({});
+
+  const [lastReadTimestamps, setLastReadTimestamps] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`discord_lastread_${username}`);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return {};
+  });
+
+  useEffect(() => {
+    if (username) {
+      localStorage.setItem(`discord_channels_${username}`, JSON.stringify(joinedChannels));
+    }
+  }, [joinedChannels, username]);
+
+  useEffect(() => {
+    if (username) {
+      localStorage.setItem(`discord_lastread_${username}`, JSON.stringify(lastReadTimestamps));
+    }
+  }, [lastReadTimestamps, username]);
+
+  useEffect(() => {
+    setLastReadTimestamps(prev => ({
+      ...prev,
+      [room]: Date.now()
+    }));
+  }, [room, messages]);
   
   // Settings / Delete Account State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -78,11 +127,6 @@ function ChatWindow({ token, username, onLogout }) {
       console.log(`Connected successfully to ${serverUrl}`);
       setIsConnected(true);
       setIsReconnecting(false);
-
-      // Tell the server we are joining the room
-      socket.emit("join_room", room);
-      socket.emit("join", room); // Fallback if server watches for "join" instead
-      socket.emit("joinRoom", room); // Fallback
     });
 
     socket.on("disconnect", (reason) => {
@@ -123,6 +167,65 @@ function ChatWindow({ token, username, onLogout }) {
                   ? { ...msg, isDeleted: true, content: "This message was deleted." }
                   : msg
               ));
+            } else if (actionObj.action === "system_msg") {
+              const sysMsg = {
+                  sender: "System",
+                  content: actionObj.content,
+                  roomId: actionObj.roomId,
+                  lamport: actionObj.lamport,
+                  timestamp: data.timestamp || new Date().toISOString(),
+                  isSystemMsg: true
+              };
+              setMessages((prev) => {
+                const existing = prev.find(m => m.lamport === sysMsg.lamport && m.sender === sysMsg.sender);
+                if (existing) return prev;
+                return [...prev, sysMsg].sort((a,b) => a.lamport - b.lamport);
+              });
+            } else if (actionObj.action === "sync_request") {
+               if (actionObj.requester !== username) {
+                   const roomMsgs = messagesRef.current.filter(m => m.roomId === actionObj.roomId && !m.isSystemMsg);
+                   if (roomMsgs.length > 0 && !syncTimers.current[actionObj.roomId]) {
+                       syncTimers.current[actionObj.roomId] = setTimeout(() => {
+                           syncTimers.current[actionObj.roomId] = null;
+                           let toSend = messagesRef.current.filter(m => m.roomId === actionObj.roomId);
+                           if (toSend.length > 50) toSend = toSend.slice(toSend.length - 50);
+                           
+                           const syncData = JSON.stringify({ action: "sync_response", roomId: actionObj.roomId, payloads: toSend });
+                           clockRef.current += 1;
+                           socketRef.current.emit("send_message", {
+                               sender: username,
+                               content: `[ACTION-JSON::|${encodeURIComponent(syncData)}|]:: `,
+                               roomId: actionObj.roomId,
+                               lamport: clockRef.current,
+                               originServer: "",
+                               timestamp: new Date().toISOString()
+                           });
+                       }, Math.random() * 2000 + 500);
+                   }
+               }
+            } else if (actionObj.action === "sync_response") {
+                 if (syncTimers.current[actionObj.roomId]) {
+                     clearTimeout(syncTimers.current[actionObj.roomId]);
+                     syncTimers.current[actionObj.roomId] = null;
+                 }
+                 setMessages((prev) => {
+                     let didChange = false;
+                     let newMsgs = [...prev];
+                     const existingKeys = new Set(newMsgs.map(m => m.sender + "_" + m.lamport));
+                     
+                     actionObj.payloads.forEach(m => {
+                         if (!existingKeys.has(m.sender + "_" + m.lamport)) {
+                             newMsgs.push(m);
+                             existingKeys.add(m.sender + "_" + m.lamport);
+                             didChange = true;
+                         }
+                     });
+                     
+                     if (didChange) {
+                        return newMsgs.sort((a,b) => a.lamport - b.lamport);
+                     }
+                     return prev;
+                 });
             }
             
             // Important to always track lamport for any message we receive
@@ -152,7 +255,7 @@ function ChatWindow({ token, username, onLogout }) {
       const normalizedData = {
         ...data,
         content: parsedContent,
-        roomId: data.roomId || data.room || room,
+        roomId: data.roomId || data.room || roomRef.current,
         timestamp: data.timestamp || data.createdAt || data.time || new Date().toISOString(),
         replyTo: replyToObj
       };
@@ -179,7 +282,32 @@ function ChatWindow({ token, username, onLogout }) {
       socket.off("message");
       socket.disconnect();
     };
-  }, [serverIdx, token, room]);
+  }, [serverIdx, token]);
+
+  // Sync all joined channels to socket connections
+  useEffect(() => {
+    if (socketRef.current && isConnected) {
+      joinedChannels.forEach(ch => {
+        socketRef.current.emit("join_room", ch);
+        socketRef.current.emit("join", ch);
+        socketRef.current.emit("joinRoom", ch);
+      });
+    }
+  }, [joinedChannels, isConnected]);
+
+  const broadcastSystemMessage = (ch, actionStr) => {
+    clockRef.current += 1;
+    const systemActionData = JSON.stringify({ action: "system_msg", content: `${username} ${actionStr} the channel.`, lamport: clockRef.current, roomId: ch });
+    const payload = {
+      sender: username,
+      content: `[ACTION-JSON::|${encodeURIComponent(systemActionData)}|]:: `,
+      roomId: ch,
+      lamport: clockRef.current,
+      originServer: "",
+      timestamp: new Date().toISOString()
+    };
+    if (socketRef.current) socketRef.current.emit("send_message", payload);
+  };
 
   const sendMessage = (e) => {
     e?.preventDefault();
@@ -374,17 +502,69 @@ function ChatWindow({ token, username, onLogout }) {
         </div>
         
         <div className="sidebar-content">
-          <div className="section-label">TEXT CHANNELS</div>
-          {rooms.map((r) => (
-            <div
-              key={r}
-              className={`room-item ${r === room ? "active" : ""}`}
-              onClick={() => setRoom(r)}
-            >
-              <Hash size={18} />
-              {r}
-            </div>
-          ))}
+          <div className="section-label">JOINED CHANNELS</div>
+          {rooms.filter(r => joinedChannels.includes(r)).map((r) => {
+            const unreadCount = r === room ? 0 : messages.filter(m => !m.isDeleted && m.roomId === r && new Date(m.timestamp).getTime() > (lastReadTimestamps[r] || 0)).length;
+
+            return (
+              <div
+                key={r}
+                className={`room-item ${r === room ? "active" : ""}`}
+                onClick={() => setRoom(r)}
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <Hash size={18} style={{ marginRight: '6px' }} />
+                  <span style={{ fontWeight: unreadCount > 0 ? 700 : 'normal', color: unreadCount > 0 ? 'var(--text-main)' : 'inherit' }}>
+                    {r}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {unreadCount > 0 && (
+                    <div style={{ background: '#ed4245', color: 'white', fontSize: '11px', fontWeight: 'bold', padding: '1px 6px', borderRadius: '12px' }}>
+                      {unreadCount}
+                    </div>
+                  )}
+                  {r !== "general" && (
+                    <button 
+                      title="Leave Channel"
+                      onClick={(e) => { e.stopPropagation(); setChannelToLeave(r); }}
+                      style={{ 
+                        padding: 2, 
+                        background: 'transparent', 
+                        border: 'none', 
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center'
+                      }}
+                      onMouseOver={(e) => e.currentTarget.style.color = 'var(--text-main)'}
+                      onMouseOut={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
+                    >
+                      <LogOut size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          {rooms.filter(r => !joinedChannels.includes(r)).length > 0 && (
+            <>
+              <div className="section-label" style={{ marginTop: '20px' }}>MORE CHANNELS TO JOIN</div>
+              {rooms.filter(r => !joinedChannels.includes(r)).map((r) => (
+                <div
+                  key={r}
+                  className="room-item unjoined-room"
+                  onClick={() => setChannelToJoin(r)}
+                  style={{ display: 'flex', alignItems: 'center', opacity: 0.7 }}
+                >
+                  <Hash size={18} style={{ marginRight: '6px' }} />
+                  {r}
+                </div>
+              ))}
+            </>
+          )}
         </div>
         
         <div className="sidebar-footer">
@@ -440,6 +620,15 @@ function ChatWindow({ token, username, onLogout }) {
             </div>
           ) : (
             currentRoomMessages.map((m, i) => {
+              if (m.isSystemMsg) {
+                return (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'center', margin: '16px 0' }}>
+                    <span style={{ fontSize: 13, color: 'var(--text-muted)', fontStyle: 'italic', background: 'var(--surface-light)', padding: '6px 20px', borderRadius: 20 }}>
+                      {m.content}
+                    </span>
+                  </div>
+                );
+              }
               const isCurrentUser = m.sender === username;
               return (
               <div key={i} className={`message ${isCurrentUser ? "message-own" : ""}`}>
@@ -672,6 +861,90 @@ function ChatWindow({ token, username, onLogout }) {
                 onClick={() => setDeletingMessage(null)}
               >
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Join Channel Modal */}
+      {channelToJoin && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, animation: 'fadeInSlideUp 0.15s ease-out forwards' }}>
+          <div className="login-card" style={{ width: '400px', padding: '24px' }}>
+            <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-main)', marginBottom: 8 }}>
+              Join #{channelToJoin}?
+            </h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 24 }}>You need to join this channel to see its messages and participate in the chat.</p>
+            
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button 
+                className="btn-secondary" 
+                style={{ flex: 1, padding: 12, background: 'var(--surface-light)', color: 'var(--text-main)', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}
+                onClick={() => setChannelToJoin(null)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn-primary" 
+                style={{ flex: 1, background: '#5865F2', borderColor: '#5865F2', fontWeight: 600 }}
+                onClick={() => {
+                  setJoinedChannels(prev => [...prev, channelToJoin]);
+                  setRoom(channelToJoin);
+                  
+                  setTimeout(() => {
+                      broadcastSystemMessage(channelToJoin, 'joined');
+                      clockRef.current += 1;
+                      const reqActionData = JSON.stringify({ action: "sync_request", roomId: channelToJoin, requester: username });
+                      if (socketRef.current) socketRef.current.emit("send_message", {
+                          sender: username,
+                          content: `[ACTION-JSON::|${encodeURIComponent(reqActionData)}|]:: `,
+                          roomId: channelToJoin,
+                          lamport: clockRef.current,
+                          originServer: "",
+                          timestamp: new Date().toISOString()
+                      });
+                  }, 250);
+
+                  setChannelToJoin(null);
+                }}
+              >
+                Join Channel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Leave Channel Modal */}
+      {channelToLeave && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, animation: 'fadeInSlideUp 0.15s ease-out forwards' }}>
+          <div className="login-card" style={{ width: '400px', padding: '24px' }}>
+            <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-main)', marginBottom: 8 }}>
+              Leave #{channelToLeave}?
+            </h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 24 }}>You won't receive messages from this channel anymore. You can always rejoin later.</p>
+            
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button 
+                className="btn-secondary" 
+                style={{ flex: 1, padding: 12, background: 'var(--surface-light)', color: 'var(--text-main)', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}
+                onClick={() => setChannelToLeave(null)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn-primary" 
+                style={{ flex: 1, background: '#ed4245', borderColor: '#ed4245', fontWeight: 600 }}
+                onClick={() => {
+                  broadcastSystemMessage(channelToLeave, 'left');
+                  setJoinedChannels(prev => prev.filter(c => c !== channelToLeave));
+                  if (room === channelToLeave) {
+                    setRoom("general");
+                  }
+                  setChannelToLeave(null);
+                }}
+              >
+                Leave Channel
               </button>
             </div>
           </div>
