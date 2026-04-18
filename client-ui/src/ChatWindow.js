@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import io from "socket.io-client";
 import axios from "axios";
-import { Hash, Send, LogOut, Radio, WifiOff, MessageSquare, Settings, AlertTriangle, Loader2, Reply, X } from "lucide-react";
+import { Hash, Send, LogOut, Radio, WifiOff, MessageSquare, Settings, AlertTriangle, Loader2, Reply, X, Edit2, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { AUTH_SERVER_URL, CHAT_SERVER_URLS } from "./config";
 import UserProfileModal from "./components/UserProfileModal";
@@ -24,8 +24,10 @@ function ChatWindow({ token, username, onLogout }) {
   const [isConnected, setIsConnected] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   
-  // Reply Feature State
+  // Reply & Edit Feature State
   const [replyingTo, setReplyingTo] = useState(null);
+  const [editingMessage, setEditingMessage] = useState(null);
+  const [deletingMessage, setDeletingMessage] = useState(null);
   const [profileTarget, setProfileTarget] = useState(null);
   
   // Settings / Delete Account State
@@ -102,6 +104,38 @@ function ChatWindow({ token, username, onLogout }) {
       let parsedContent = data.content || "";
       let replyToObj = data.replyTo || null;
       
+      if (typeof parsedContent === "string" && parsedContent.startsWith("[ACTION-JSON::|")) {
+        const endIndex = parsedContent.indexOf("|]:: ");
+        if (endIndex !== -1) {
+          try {
+            const jsonStr = decodeURIComponent(parsedContent.substring(15, endIndex));
+            const actionObj = JSON.parse(jsonStr);
+            
+            if (actionObj.action === "edit") {
+              setMessages((prev) => prev.map((msg) => 
+                (msg.lamport === actionObj.lamport && msg.sender === actionObj.sender) 
+                  ? { ...msg, content: actionObj.content, isEdited: true }
+                  : msg
+              ));
+            } else if (actionObj.action === "delete_for_everyone") {
+              setMessages((prev) => prev.map((msg) => 
+                (msg.lamport === actionObj.lamport && msg.sender === actionObj.sender)
+                  ? { ...msg, isDeleted: true, content: "This message was deleted." }
+                  : msg
+              ));
+            }
+            
+            // Important to always track lamport for any message we receive
+            const lamport = isNaN(data.lamport) ? (clockRef.current + 1) : data.lamport;
+            clockRef.current = Math.max(clockRef.current, lamport) + 1;
+            
+            return; // Skip adding the action message to the UI
+          } catch (e) {
+            // failed to parse
+          }
+        }
+      }
+
       if (typeof parsedContent === "string" && parsedContent.startsWith("[REPLY-JSON::|")) {
         const endIndex = parsedContent.indexOf("|]:: ");
         if (endIndex !== -1) {
@@ -151,6 +185,34 @@ function ChatWindow({ token, username, onLogout }) {
     e?.preventDefault();
     if (!input.trim() || !isConnected) return;
     
+    if (editingMessage) {
+      clockRef.current += 1;
+      const finalContent = input.trim();
+      const updatedMessage = { ...editingMessage, content: finalContent, isEdited: true };
+      
+      const editActionData = JSON.stringify({ action: "edit", lamport: editingMessage.lamport, sender: editingMessage.sender, content: finalContent });
+      const payload = {
+        sender: username,
+        content: `[ACTION-JSON::|${encodeURIComponent(editActionData)}|]:: `,
+        roomId: room,
+        lamport: clockRef.current,
+        originServer: "",
+        timestamp: new Date().toISOString()
+      };
+      
+      socketRef.current.emit("send_message", payload);
+      
+      setMessages((prev) => prev.map((msg) => 
+        (msg.lamport === editingMessage.lamport && msg.sender === editingMessage.sender) 
+          ? updatedMessage 
+          : msg
+      ));
+      
+      setInput("");
+      setEditingMessage(null);
+      return;
+    }
+    
     clockRef.current += 1;
     
     let finalContent = input.trim();
@@ -173,6 +235,45 @@ function ChatWindow({ token, username, onLogout }) {
     socketRef.current.emit("send_message", payload);
     setInput("");
     setReplyingTo(null);
+  };
+
+  const handleDeleteForMe = (msg) => {
+    setMessages((prev) => prev.filter((m) => !(m.lamport === msg.lamport && m.sender === msg.sender)));
+    if (editingMessage && editingMessage.lamport === msg.lamport) {
+      setEditingMessage(null);
+      setInput("");
+    }
+    if (replyingTo && replyingTo.lamport === msg.lamport) {
+      setReplyingTo(null);
+    }
+  };
+
+  const handleDeleteForEveryone = (msg) => {
+    clockRef.current += 1;
+    const deleteActionData = JSON.stringify({ action: "delete_for_everyone", lamport: msg.lamport, sender: msg.sender });
+    const payload = {
+      sender: username,
+      content: `[ACTION-JSON::|${encodeURIComponent(deleteActionData)}|]:: `,
+      roomId: msg.roomId || room,
+      lamport: clockRef.current,
+      originServer: "",
+      timestamp: new Date().toISOString()
+    };
+    socketRef.current.emit("send_message", payload);
+
+    setMessages((prev) => prev.map((m) => 
+      (m.lamport === msg.lamport && m.sender === msg.sender)
+        ? { ...m, isDeleted: true, content: "This message was deleted." }
+        : m
+    ));
+
+    if (editingMessage && editingMessage.lamport === msg.lamport) {
+      setEditingMessage(null);
+      setInput("");
+    }
+    if (replyingTo && replyingTo.lamport === msg.lamport) {
+      setReplyingTo(null);
+    }
   };
 
   const handleLogout = async () => {
@@ -365,13 +466,34 @@ function ChatWindow({ token, username, onLogout }) {
                       {formatMessageTime(m.timestamp)}
                     </span>
                   </div>
-                  <div className="message-text">{m.content}</div>
+                  <div className={`message-text ${m.isDeleted ? "deleted-message" : ""}`}>
+                    {m.isDeleted ? (
+                      <em style={{ color: 'var(--text-muted)' }}>{m.content}</em>
+                    ) : (
+                      <>
+                        {m.content}
+                        {m.isEdited && <span className="edited-tag" style={{fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '6px', userSelect: 'none'}}>(edited)</span>}
+                      </>
+                    )}
+                  </div>
                 </div>
-                <div className="message-actions">
-                  <button className="action-button" onClick={() => setReplyingTo(m)} title="Reply">
-                    <Reply size={16} />
-                  </button>
-                </div>
+                {!m.isDeleted && (
+                  <div className="message-actions">
+                    <button className="action-button" onClick={() => { setReplyingTo(m); setEditingMessage(null); }} title="Reply">
+                      <Reply size={16} />
+                    </button>
+                    {isCurrentUser && (
+                      <>
+                        <button className="action-button" onClick={() => { setEditingMessage(m); setInput(m.content); setReplyingTo(null); }} title="Edit">
+                          <Edit2 size={16} />
+                        </button>
+                        <button className="action-button" onClick={() => setDeletingMessage(m)} title="Delete" style={{color: '#ed4245'}}>
+                          <Trash2 size={16} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             )})
           )}
@@ -391,6 +513,22 @@ function ChatWindow({ token, username, onLogout }) {
                 </span>
               </div>
               <button className="cancel-reply" onClick={() => setReplyingTo(null)} title="Cancel reply">
+                <X size={16} />
+              </button>
+            </div>
+          )}
+          {editingMessage && (
+            <div className="replying-to-bar">
+              <div className="replying-to-info">
+                <Edit2 size={14} className="replying-icon" />
+                <span className="replying-to-text">
+                  Editing Message
+                </span>
+                <span className="replying-to-preview">
+                  "{editingMessage.content.substring(0, 40)}{editingMessage.content.length > 40 ? '...' : ''}"
+                </span>
+              </div>
+              <button className="cancel-reply" onClick={() => { setEditingMessage(null); setInput(""); }} title="Cancel edit">
                 <X size={16} />
               </button>
             </div>
@@ -494,6 +632,46 @@ function ChatWindow({ token, username, onLogout }) {
                 }}
               >
                 Confirm Logout
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Message Modal */}
+      {deletingMessage && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, animation: 'fadeInSlideUp 0.15s ease-out forwards' }}>
+          <div className="login-card" style={{ width: '400px', padding: '24px' }}>
+            <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-main)', marginBottom: 8 }}>Delete Message</h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 24 }}>Are you sure you want to delete this message?</p>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <button 
+                className="btn-primary" 
+                style={{ width: '100%', background: '#ed4245', borderColor: '#ed4245', fontWeight: 600, padding: 12 }}
+                onClick={() => {
+                  handleDeleteForEveryone(deletingMessage);
+                  setDeletingMessage(null);
+                }}
+              >
+                Delete for Everyone
+              </button>
+              <button 
+                className="btn-primary" 
+                style={{ width: '100%', background: 'transparent', borderColor: '#ed4245', color: '#ed4245', fontWeight: 600, padding: 12 }}
+                onClick={() => {
+                  handleDeleteForMe(deletingMessage);
+                  setDeletingMessage(null);
+                }}
+              >
+                Delete for Me
+              </button>
+              <button 
+                className="btn-secondary" 
+                style={{ width: '100%', padding: 12, background: 'var(--surface-light)', color: 'var(--text-main)', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}
+                onClick={() => setDeletingMessage(null)}
+              >
+                Cancel
               </button>
             </div>
           </div>
