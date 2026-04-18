@@ -51,6 +51,7 @@ function ChatWindow({ token, username, onLogout }) {
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   
   const syncTimers = useRef({});
+  const notifiedChannels = useRef(new Set());
 
   const [lastReadTimestamps, setLastReadTimestamps] = useState(() => {
     try {
@@ -78,6 +79,34 @@ function ChatWindow({ token, username, onLogout }) {
       [room]: Date.now()
     }));
   }, [room, messages]);
+
+  // Check for Unread Messages to send Email Notifications
+  useEffect(() => {
+    joinedChannels.forEach(r => {
+      if (r === roomRef.current) {
+        if (notifiedChannels.current.has(r)) notifiedChannels.current.delete(r);
+        return;
+      }
+      
+      const count = messages.filter(m => !m.isDeleted && m.roomId === r && new Date(m.timestamp).getTime() > (lastReadTimestamps[r] || 0)).length;
+      
+      if (count > 20 && !notifiedChannels.current.has(r)) {
+          notifiedChannels.current.add(r);
+          
+          axios.post(`${AUTH_SERVER_URL}/email-notification`, {
+              username,
+              channel: r,
+              unreadCount: count
+          }, {
+              headers: { Authorization: `Bearer ${token}` }
+          }).catch(err => {
+              console.warn(`Email notification triggered for #${r} (${count} unreads). Check backend to verify mock/implementation.`, err.message);
+          });
+      } else if (count === 0 && notifiedChannels.current.has(r)) {
+          notifiedChannels.current.delete(r);
+      }
+    });
+  }, [messages, joinedChannels, lastReadTimestamps, username, token]);
   
   // Settings / Delete Account State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -621,10 +650,15 @@ function ChatWindow({ token, username, onLogout }) {
           ) : (
             currentRoomMessages.map((m, i) => {
               if (m.isSystemMsg) {
+                let displayContent = m.content;
+                const prefix = `${username} `;
+                if (displayContent.startsWith(prefix)) {
+                  displayContent = `You ${displayContent.slice(prefix.length)}`;
+                }
                 return (
                   <div key={i} style={{ display: 'flex', justifyContent: 'center', margin: '16px 0' }}>
                     <span style={{ fontSize: 13, color: 'var(--text-muted)', fontStyle: 'italic', background: 'var(--surface-light)', padding: '6px 20px', borderRadius: 20 }}>
-                      {m.content}
+                      {displayContent}
                     </span>
                   </div>
                 );
