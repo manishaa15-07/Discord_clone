@@ -32,36 +32,13 @@ const transporter = nodemailer.createTransport({
 // A helper to check if emails should actually be sent
 const isUsingDefaultCredentials = transporter.options.auth.user === 'yourgmail@gmail.com';
 
-const fs = require('fs');
-const path = require('path');
-
-// ─────────────────────────────────────────────
-// FILE SYSTEM DATABASE
-// ─────────────────────────────────────────────
-const USERS_FILE = path.join(__dirname, 'users.json');
-const TOKENS_FILE = path.join(__dirname, 'tokens.json');
-
-let users = [];
-let resetTokens = [];
-
-function loadData() {
-    if (fs.existsSync(USERS_FILE)) users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
-    if (fs.existsSync(TOKENS_FILE)) resetTokens = JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf8'));
-}
-
-function saveData() {
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-    fs.writeFileSync(TOKENS_FILE, JSON.stringify(resetTokens, null, 2));
-}
-
-loadData();
-
+const { pool } = require('./db.js');
 // ─────────────────────────────────────────────
 // EMAIL HELPERS
 // ─────────────────────────────────────────────
-async function sendWelcomeEmail(email, displayName, username) {
+async function sendWelcomeEmail(email, displayName, username, userId) {
     if (isUsingDefaultCredentials) {
-        console.log(`[Config Required] Skipped sending welcome email to ${email}`);
+        console.log(`[Config Required] Skipped sending welcome email to user ID: ${userId}`);
         return;
     }
     try {
@@ -94,15 +71,15 @@ async function sendWelcomeEmail(email, displayName, username) {
                 </div>
             `
         });
-        console.log(`Welcome email sent to ${email}`);
+        console.log(`Welcome email sent to user ID: ${userId}`);
     } catch (err) {
         console.error('Failed to send welcome email:', err.message);
     }
 }
 
-async function sendLoginEmail(email, displayName, username) {
+async function sendLoginEmail(email, displayName, username, userId) {
     if (isUsingDefaultCredentials) {
-        console.log(`[Config Required] Skipped sending login email to ${email}`);
+        console.log(`[Config Required] Skipped sending login email to user ID: ${userId}`);
         return;
     }
     try {
@@ -131,19 +108,19 @@ async function sendLoginEmail(email, displayName, username) {
                 </div>
             `
         });
-        console.log(`Login alert sent to ${email}`);
+        console.log(`Login alert sent to user ID: ${userId}`);
     } catch (err) {
         console.error('Failed to send login email:', err.message);
     }
 }
 
-async function sendResetEmail(email, displayName, resetToken, origin = 'http://localhost:3000') {
+async function sendResetEmail(email, displayName, resetToken, origin = 'http://172.27.46.115:3000', userId) {
     if (isUsingDefaultCredentials) {
-        console.log(`[Config Required] Skipped sending reset email to ${email}`);
+        console.log(`[Config Required] Skipped sending reset email to user ID: ${userId}`);
         return;
     }
-    // Point back to the React app root, passing the token in the URL query
-    const resetLink = `${origin}/?token=${resetToken}`;
+    // Point back to the React app reset password page, passing the token in the URL query
+    const resetLink = `${origin}/reset-password?token=${resetToken}`;
 
     try {
         await transporter.sendMail({
@@ -168,15 +145,15 @@ async function sendResetEmail(email, displayName, resetToken, origin = 'http://l
                 </div>
             `
         });
-        console.log(`Password reset email sent to ${email}`);
+        console.log(`Password reset email sent to user ID: ${userId}`);
     } catch (err) {
         console.error('Failed to send reset email:', err.message);
     }
 }
 
-async function sendPasswordChangedEmail(email, displayName) {
+async function sendPasswordChangedEmail(email, displayName, userId) {
     if (isUsingDefaultCredentials) {
-        console.log(`[Config Required] Skipped sending password changed email to ${email}`);
+        console.log(`[Config Required] Skipped sending password changed email to user ID: ${userId}`);
         return;
     }
     try {
@@ -196,15 +173,15 @@ async function sendPasswordChangedEmail(email, displayName) {
                 </div>
             `
         });
-        console.log(`Password changed email sent to ${email}`);
+        console.log(`Password changed email sent to user ID: ${userId}`);
     } catch (err) {
         console.error('Failed to send password changed email:', err.message);
     }
 }
 
-async function sendGoodbyeEmail(email, displayName) {
+async function sendGoodbyeEmail(email, displayName, userId) {
     if (isUsingDefaultCredentials) {
-        console.log(`[Config Required] Skipped sending goodbye email to ${email}`);
+        console.log(`[Config Required] Skipped sending goodbye email to user ID: ${userId}`);
         return;
     }
     try {
@@ -224,9 +201,46 @@ async function sendGoodbyeEmail(email, displayName) {
                 </div>
             `
         });
-        console.log(`Goodbye email sent to ${email}`);
+        console.log(`Goodbye email sent to user ID: ${userId}`);
     } catch (err) {
         console.error('Failed to send goodbye email:', err.message);
+    }
+}
+
+async function sendUnreadNotificationEmail(email, displayName, channel, unreadCount, userId) {
+    if (isUsingDefaultCredentials) {
+        console.log(`[Config Required] Skipped sending unread notification email to user ID: ${userId}`);
+        return;
+    }
+    try {
+        await transporter.sendMail({
+            from: '"Discord Clone Auth" <yourgmail@gmail.com>',
+            to: email,
+            subject: `Discord Clone: ${unreadCount} new messages in #${channel}`,
+            html: `
+                <div style="font-family:sans-serif;max-width:500px;margin:auto;padding:30px;border:1px solid #eee;border-radius:10px;">
+                    <h2 style="color:#7c6ff7;">You have unread messages! 📬</h2>
+                    <p>Hi <strong>${displayName}</strong>, you've been missing out on the conversation.</p>
+                    <br/>
+                    <table style="width:100%;border-collapse:collapse;">
+                        <tr>
+                            <td style="padding:8px;color:#888;">Channel</td>
+                            <td style="padding:8px;font-weight:bold;">#${channel}</td>
+                        </tr>
+                        <tr style="background:#f9f9f9">
+                            <td style="padding:8px;color:#888;">Unread Messages</td>
+                            <td style="padding:8px;font-weight:bold;">${unreadCount}</td>
+                        </tr>
+                    </table>
+                    <br/>
+                    <p style="color:#888;font-size:13px;">Open the app to catch up with your friends!</p>
+                    <p style="color:#7c6ff7;font-weight:bold;">— Discord Clone Team</p>
+                </div>
+            `
+        });
+        console.log(`Unread notification email sent to user ID: ${userId}`);
+    } catch (err) {
+        console.error('Failed to send unread notification email:', err.message);
     }
 }
 
@@ -262,44 +276,61 @@ app.post('/register', async (req, res) => {
         });
     }
 
-    const existingUsername = users.find(u => u.username === username);
-    if (existingUsername) {
-        return res.status(409).json({ error: 'Username already taken' });
-    }
+    try {
+        const _username = username.toLowerCase().trim();
+        const _email = email.toLowerCase().trim();
+        const existingUser = await pool.query('SELECT * FROM users WHERE username = $1 OR email = $2', [_username, _email]);
 
-    const existingEmail = users.find(u => u.email === email);
-    if (existingEmail) {
-        return res.status(409).json({ error: 'Email already registered' });
-    }
+        if (existingUser.rows.length > 0) {
+            const row = existingUser.rows[0];
+            if (row.username === _username) {
+                return res.status(409).json({ error: 'Username already taken' });
+            }
+            if (row.email === _email) {
+                return res.status(409).json({ error: 'Email already registered' });
+            }
+        }
 
-    const password_hash = await bcrypt.hash(password, 10);
+        const password_hash = await bcrypt.hash(password, 10);
 
-    const newUser = {
-        id: users.length + 1,
-        username: username.toLowerCase().trim(),
-        password_hash,
-        email: email.toLowerCase().trim(),
-        displayName: displayName.trim(),
-        createdAt: new Date().toISOString(),
-        isOnline: false,
-        lastSeen: null
-    };
+        // Generate user ID using Timestamp + username prefix
+        const usernamePrefix = _username.substring(0, 4);
+        const randomId = `${Date.now()}-${usernamePrefix}`;
 
-    users.push(newUser);
-    saveData();
+        const result = await pool.query(
+            'INSERT INTO users (id, username, password_hash, email, display_name) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+            [randomId, _username, password_hash, _email, displayName.trim()]
+        );
+        const newUser = result.rows[0];
 
-    sendWelcomeEmail(newUser.email, newUser.displayName, newUser.username);
-
-    res.status(201).json({
-        message: 'User registered successfully',
-        user: {
+        // --- DEBUG LOGGING ---
+        console.log(`\n================== DEBUG: DB STORAGE ==================`);
+        console.log(`✅ Successfully inserted new user into remote PostgreSQL Database!`);
+        console.log(`Database Host: ${process.env.DB_HOST || '172.27.46.48'}`);
+        console.log(`User Data Stored:`, {
             id: newUser.id,
             username: newUser.username,
             email: newUser.email,
-            displayName: newUser.displayName,
-            createdAt: newUser.createdAt
-        }
-    });
+        });
+        console.log(`To see all data currently in DB, visit: http://localhost:5001/users/all`);
+        console.log(`=======================================================\n`);
+
+        sendWelcomeEmail(newUser.email, newUser.display_name, newUser.username, newUser.id);
+
+        res.status(201).json({
+            message: 'User registered successfully',
+            user: {
+                id: newUser.id,
+                username: newUser.username,
+                email: newUser.email,
+                displayName: newUser.display_name,
+                createdAt: newUser.created_at
+            }
+        });
+    } catch (err) {
+        console.error('Registration error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 
 // ─────────────────────────────────────────────
@@ -316,46 +347,56 @@ app.post('/login', async (req, res) => {
         });
     }
 
-    const user = users.find(u => u.username === username.toLowerCase().trim());
-    if (!user) {
-        return res.status(401).json({ error: 'Invalid username or password' });
-    }
+    try {
+        const _username = username.toLowerCase().trim();
+        const result = await pool.query('SELECT * FROM users WHERE username = $1', [_username]);
+        const user = result.rows[0];
 
-    const isValid = await bcrypt.compare(password, user.password_hash);
-    if (!isValid) {
-        return res.status(401).json({ error: 'Invalid username or password' });
-    }
-
-    user.isOnline = true;
-    user.lastSeen = new Date().toISOString();
-    saveData();
-
-    const token = jwt.sign(
-        {
-            user_id: user.id,
-            username: user.username,
-            email: user.email,
-            displayName: user.displayName
-        },
-        SECRET,
-        { expiresIn: '24h' }
-    );
-
-    sendLoginEmail(user.email, user.displayName, user.username);
-
-    res.json({
-        message: 'Login successful',
-        token,
-        user: {
-            id: user.id,
-            username: user.username,
-            email: user.email,
-            displayName: user.displayName,
-            createdAt: user.createdAt,
-            isOnline: user.isOnline,
-            lastSeen: user.lastSeen
+        if (!user) {
+            return res.status(401).json({ error: 'Invalid username or password' });
         }
-    });
+
+        const isValid = await bcrypt.compare(password, user.password_hash);
+        if (!isValid) {
+            return res.status(401).json({ error: 'Invalid username or password' });
+        }
+
+        const updatedUser = await pool.query(
+            'UPDATE users SET is_online = true, last_seen = NOW() WHERE id = $1 RETURNING *',
+            [user.id]
+        );
+        const u = updatedUser.rows[0];
+
+        const token = jwt.sign(
+            {
+                user_id: u.id,
+                username: u.username,
+                email: u.email,
+                displayName: u.display_name
+            },
+            SECRET,
+            { expiresIn: '24h' }
+        );
+
+        sendLoginEmail(u.email, u.display_name, u.username, u.id);
+
+        res.json({
+            message: 'Login successful',
+            token,
+            user: {
+                id: u.id,
+                username: u.username,
+                email: u.email,
+                displayName: u.display_name,
+                createdAt: u.created_at,
+                isOnline: u.is_online,
+                lastSeen: u.last_seen
+            }
+        });
+    } catch (err) {
+        console.error('Login error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 
 // ─────────────────────────────────────────────
@@ -363,7 +404,7 @@ app.post('/login', async (req, res) => {
 // POST /logout
 // Header: Authorization: Bearer <token>
 // ─────────────────────────────────────────────
-app.post('/logout', (req, res) => {
+app.post('/logout', async (req, res) => {
     const authHeader = req.headers.authorization;
     if (!authHeader) {
         return res.status(401).json({ error: 'No token provided' });
@@ -372,14 +413,9 @@ app.post('/logout', (req, res) => {
     const token = authHeader.split(' ')[1];
     try {
         const decoded = jwt.verify(token, SECRET);
-        const user = users.find(u => u.id === decoded.user_id);
-        if (user) {
-            user.isOnline = false;
-            user.lastSeen = new Date().toISOString();
-            saveData();
-        }
+        await pool.query('UPDATE users SET is_online = false, last_seen = NOW() WHERE id = $1', [decoded.user_id]);
         res.json({ message: 'Logged out successfully' });
-    } catch {
+    } catch (err) {
         res.status(401).json({ error: 'Invalid or expired token' });
     }
 });
@@ -397,48 +433,41 @@ app.post('/forgot-password', async (req, res) => {
         return res.status(400).json({ error: 'Email is required' });
     }
 
-    const user = users.find(u => u.email === email.toLowerCase().trim());
+    try {
+        const _email = email.toLowerCase().trim();
+        const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [_email]);
+        const user = userResult.rows[0];
 
-    // Always say success even if email not found
-    // This prevents attackers from knowing which emails are registered
-    if (!user) {
-        return res.json({
-            message: 'If that email exists, a reset link has been sent'
+        if (!user) {
+            return res.json({
+                message: 'If that email exists, a reset link has been sent'
+            });
+        }
+
+        await pool.query('DELETE FROM reset_tokens WHERE user_id = $1', [user.id]);
+
+        const resetToken = crypto.randomBytes(32).toString('hex');
+        const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+        await pool.query(
+            'INSERT INTO reset_tokens (token, user_id, expires_at) VALUES ($1, $2, $3)',
+            [resetToken, user.id, expiresAt]
+        );
+
+        console.log('Reset token generated:', resetToken);
+        console.log('Expires at:', expiresAt);
+
+        const origin = req.headers.origin || 'http://localhost:3000';
+        sendResetEmail(user.email, user.display_name, resetToken, origin, user.id);
+
+        res.json({
+            message: 'If that email exists, a reset link has been sent',
+            debug_token: resetToken
         });
+    } catch (err) {
+        console.error('Forgot password error:', err);
+        res.status(500).json({ error: 'Internal server error' });
     }
-
-    // Remove any existing reset tokens for this user
-    const existingIndex = resetTokens.findIndex(t => t.userId === user.id);
-    if (existingIndex !== -1) {
-        resetTokens.splice(existingIndex, 1);
-    }
-
-    // Generate a random secure token
-    const resetToken = crypto.randomBytes(32).toString('hex');
-
-    // Token expires in 15 minutes
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-
-    // Store it
-    resetTokens.push({
-        token: resetToken,
-        userId: user.id,
-        expiresAt
-    });
-    saveData();
-
-    console.log('Reset token generated:', resetToken);
-    console.log('Expires at:', expiresAt);
-
-    // Send email with reset link using the request's origin
-    const origin = req.headers.origin || 'http://localhost:3000';
-    sendResetEmail(user.email, user.displayName, resetToken, origin);
-
-    res.json({
-        message: 'If that email exists, a reset link has been sent',
-        // Remove this line in production — only for testing
-        debug_token: resetToken
-    });
 });
 
 // ─────────────────────────────────────────────
@@ -462,45 +491,43 @@ app.post('/reset-password', async (req, res) => {
         });
     }
 
-    // Find the reset token
-    const resetEntry = resetTokens.find(t => t.token === token);
+    try {
+        const tokenResult = await pool.query('SELECT * FROM reset_tokens WHERE token = $1', [token]);
+        const resetEntry = tokenResult.rows[0];
 
-    if (!resetEntry) {
-        return res.status(400).json({
-            error: 'Invalid reset token'
-        });
+        if (!resetEntry) {
+            return res.status(400).json({
+                error: 'Invalid reset token'
+            });
+        }
+
+        if (new Date() > new Date(resetEntry.expires_at)) {
+            await pool.query('DELETE FROM reset_tokens WHERE token = $1', [token]);
+            return res.status(400).json({
+                error: 'Reset token has expired. Please request a new one.'
+            });
+        }
+
+        const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [resetEntry.user_id]);
+        const user = userResult.rows[0];
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const password_hash = await bcrypt.hash(newPassword, 10);
+
+        await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [password_hash, user.id]);
+        await pool.query('DELETE FROM reset_tokens WHERE token = $1', [token]);
+
+        console.log(`Password reset successful for user: ${user.username}`);
+
+        sendPasswordChangedEmail(user.email, user.display_name, user.id);
+
+        res.json({ message: 'Password reset successful. You can now log in.' });
+    } catch (err) {
+        console.error('Reset password error:', err);
+        res.status(500).json({ error: 'Internal server error' });
     }
-
-    // Check if token is expired
-    if (new Date() > new Date(resetEntry.expiresAt)) {
-        // Remove expired token
-        const index = resetTokens.findIndex(t => t.token === token);
-        resetTokens.splice(index, 1);
-        return res.status(400).json({
-            error: 'Reset token has expired. Please request a new one.'
-        });
-    }
-
-    // Find the user
-    const user = users.find(u => u.id === resetEntry.userId);
-    if (!user) {
-        return res.status(404).json({ error: 'User not found' });
-    }
-
-    // Hash the new password
-    user.password_hash = await bcrypt.hash(newPassword, 10);
-
-    // Remove the used reset token
-    const index = resetTokens.findIndex(t => t.token === token);
-    resetTokens.splice(index, 1);
-    saveData();
-
-    console.log(`Password reset successful for user: ${user.username}`);
-
-    // Send confirmation email
-    sendPasswordChangedEmail(user.email, user.displayName);
-
-    res.json({ message: 'Password reset successful. You can now log in.' });
 });
 
 // ─────────────────────────────────────────────
@@ -527,15 +554,13 @@ app.delete('/account', async (req, res) => {
     try {
         const decoded = jwt.verify(token, SECRET);
 
-        // Find user
-        const userIndex = users.findIndex(u => u.id === decoded.user_id);
-        if (userIndex === -1) {
+        const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [decoded.user_id]);
+        const user = userResult.rows[0];
+
+        if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
 
-        const user = users[userIndex];
-
-        // Verify password before deleting
         const isValid = await bcrypt.compare(password, user.password_hash);
         if (!isValid) {
             return res.status(401).json({
@@ -543,29 +568,19 @@ app.delete('/account', async (req, res) => {
             });
         }
 
-        // Remove all reset tokens for this user too
-        const resetIndex = resetTokens.findIndex(t => t.userId === user.id);
-        if (resetIndex !== -1) {
-            resetTokens.splice(resetIndex, 1);
-        }
-
-        // Save details before deleting for the goodbye email
         const deletedEmail = user.email;
-        const deletedDisplayName = user.displayName;
+        const deletedDisplayName = user.display_name;
         const deletedUsername = user.username;
 
-        // Remove user from array
-        users.splice(userIndex, 1);
-        saveData();
+        await pool.query('DELETE FROM users WHERE id = $1', [user.id]);
 
         console.log(`Account deleted: ${deletedUsername}`);
 
-        // Send goodbye email
-        sendGoodbyeEmail(deletedEmail, deletedDisplayName);
+        sendGoodbyeEmail(deletedEmail, deletedDisplayName, user.id);
 
         res.json({ message: 'Account permanently deleted.' });
 
-    } catch {
+    } catch (err) {
         res.status(401).json({ error: 'Invalid or expired token' });
     }
 });
@@ -575,7 +590,7 @@ app.delete('/account', async (req, res) => {
 // GET /verify
 // Header: Authorization: Bearer <token>
 // ─────────────────────────────────────────────
-app.get('/verify', (req, res) => {
+app.get('/verify', async (req, res) => {
     const authHeader = req.headers.authorization;
     if (!authHeader) {
         return res.status(401).json({ error: 'No token provided' });
@@ -584,7 +599,8 @@ app.get('/verify', (req, res) => {
     const token = authHeader.split(' ')[1];
     try {
         const decoded = jwt.verify(token, SECRET);
-        const user = users.find(u => u.id === decoded.user_id);
+        const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [decoded.user_id]);
+        const user = userResult.rows[0];
 
         res.json({
             valid: true,
@@ -593,11 +609,11 @@ app.get('/verify', (req, res) => {
                 username: decoded.username,
                 email: decoded.email,
                 displayName: decoded.displayName,
-                isOnline: user ? user.isOnline : false,
-                lastSeen: user ? user.lastSeen : null
+                isOnline: user ? user.is_online : false,
+                lastSeen: user ? user.last_seen : null
             }
         });
-    } catch {
+    } catch (err) {
         res.status(401).json({ valid: false, error: 'Invalid or expired token' });
     }
 });
@@ -607,7 +623,7 @@ app.get('/verify', (req, res) => {
 // GET /user/:username
 // Header: Authorization: Bearer <token>
 // ─────────────────────────────────────────────
-app.get('/user/:username', (req, res) => {
+app.get('/user/:username', async (req, res) => {
     const authHeader = req.headers.authorization;
     if (!authHeader) {
         return res.status(401).json({ error: 'Login required' });
@@ -616,7 +632,8 @@ app.get('/user/:username', (req, res) => {
     const token = authHeader.split(' ')[1];
     try {
         jwt.verify(token, SECRET);
-        const user = users.find(u => u.username === req.params.username);
+        const userResult = await pool.query('SELECT * FROM users WHERE username = $1', [req.params.username]);
+        const user = userResult.rows[0];
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
@@ -624,12 +641,12 @@ app.get('/user/:username', (req, res) => {
         res.json({
             id: user.id,
             username: user.username,
-            displayName: user.displayName,
-            isOnline: user.isOnline,
-            lastSeen: user.lastSeen,
-            createdAt: user.createdAt
+            displayName: user.display_name,
+            isOnline: user.is_online,
+            lastSeen: user.last_seen,
+            createdAt: user.created_at
         });
-    } catch {
+    } catch (err) {
         res.status(401).json({ error: 'Invalid or expired token' });
     }
 });
@@ -639,7 +656,7 @@ app.get('/user/:username', (req, res) => {
 // GET /users/online
 // Header: Authorization: Bearer <token>
 // ─────────────────────────────────────────────
-app.get('/users/online', (req, res) => {
+app.get('/users/online', async (req, res) => {
     const authHeader = req.headers.authorization;
     if (!authHeader) {
         return res.status(401).json({ error: 'Login required' });
@@ -648,16 +665,15 @@ app.get('/users/online', (req, res) => {
     const token = authHeader.split(' ')[1];
     try {
         jwt.verify(token, SECRET);
-        const onlineUsers = users
-            .filter(u => u.isOnline)
-            .map(u => ({
-                id: u.id,
-                username: u.username,
-                displayName: u.displayName,
-                lastSeen: u.lastSeen
-            }));
+        const result = await pool.query('SELECT id, username, display_name, last_seen FROM users WHERE is_online = true');
+        const onlineUsers = result.rows.map(u => ({
+            id: u.id,
+            username: u.username,
+            displayName: u.display_name,
+            lastSeen: u.last_seen
+        }));
         res.json({ onlineUsers });
-    } catch {
+    } catch (err) {
         res.status(401).json({ error: 'Invalid or expired token' });
     }
 });
@@ -666,17 +682,66 @@ app.get('/users/online', (req, res) => {
 // DEBUG ROUTE
 // GET /users/all
 // ─────────────────────────────────────────────
-app.get('/users/all', (req, res) => {
-    const safeUsers = users.map(u => ({
-        id: u.id,
-        username: u.username,
-        email: u.email,
-        displayName: u.displayName,
-        isOnline: u.isOnline,
-        lastSeen: u.lastSeen,
-        createdAt: u.createdAt
-    }));
-    res.json({ total: users.length, users: safeUsers });
+app.get('/users/all', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT id, username, email, display_name, is_online, last_seen, created_at FROM users');
+        const safeUsers = result.rows.map(u => ({
+            id: u.id,
+            username: u.username,
+            email: u.email,
+            displayName: u.display_name,
+            isOnline: u.is_online,
+            lastSeen: u.last_seen,
+            createdAt: u.created_at
+        }));
+        res.json({ total: result.rows.length, users: safeUsers });
+    } catch (err) {
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// ─────────────────────────────────────────────
+// UNREAD NOTIFICATION EMAIL
+// POST /email-notification
+// Header: Authorization: Bearer <token>
+// Body: { username, channel, unreadCount }
+// ─────────────────────────────────────────────
+app.post('/email-notification', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+        return res.status(401).json({ error: 'Login required' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    try {
+        jwt.verify(token, SECRET);
+
+        const { username, channel, unreadCount } = req.body;
+        if (!username || !channel || !unreadCount) {
+            return res.status(400).json({ error: "Missing required fields for email dispatch." });
+        }
+
+        const _username = username.toLowerCase().trim();
+        const userResult = await pool.query('SELECT * FROM users WHERE username = $1', [_username]);
+        const user = userResult.rows[0];
+
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        console.log(`\n=========================================`);
+        console.log(`[EMAIL DISPATCH] To: ${user.display_name} (${user.email})`);
+        console.log(`Subject: You have ${unreadCount} unread messages in #${channel}!`);
+        console.log(`=========================================\n`);
+
+        sendUnreadNotificationEmail(user.email, user.display_name, channel, unreadCount, user.id);
+
+        return res.status(200).json({ message: "Email notification dispatched successfully" });
+
+    } catch (err) {
+        console.error("Error sending email notification:", err);
+        return res.status(401).json({ error: "Invalid or expired token, or server error" });
+    }
 });
 
 app.listen(5001, () => {
@@ -687,9 +752,12 @@ app.listen(5001, () => {
     console.log('  POST   /logout');
     console.log('  POST   /forgot-password');
     console.log('  POST   /reset-password');
+    console.log('  POST   /email-notification');
     console.log('  DELETE /account');
     console.log('  GET    /verify');
     console.log('  GET    /user/:username');
     console.log('  GET    /users/online');
     console.log('  GET    /users/all  (debug only)');
 });
+
+
