@@ -1,0 +1,22 @@
+[
+  {
+    "id": 1,
+    "username": "manuu",
+    "password_hash": "$2b$10$y64zKBkjT3dVpQoAji4couByepJlQKpnSWc8iqn8cfIlV9iJeHof2",
+    "email": "qwertyuiop@gmail.com",
+    "displayName": "manu",
+    "createdAt": "2026-04-08T07:33:44.440Z",
+    "isOnline": true,
+    "lastSeen": "2026-04-08T07:34:07.905Z"
+  },
+  {
+    "id": 2,
+    "username": "bhavyanshi05",
+    "password_hash": "$2b$10$8dWa.M6lx9UNu2cySt5H0.lIBmaQjaqIPpC.rbzLxE5YGXdy/CUIy",
+    "email": "bhavyanshikarela500@gmail.com",
+    "displayName": "Bhavyanshi Karela",
+    "createdAt": "2026-04-08T09:57:33.347Z",
+    "isOnline": false,
+    "lastSeen": "2026-04-08T09:57:37.547Z"
+  }
+]
